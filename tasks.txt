@@ -1,0 +1,28 @@
+Grade D:
+	CREATE - DONE
+	.tables - DONE
+	.schema - DONE
+	DELETE
+	INSERT
+	SELECT
+	.quit
+
+	no zombie processes
+	command line options
+		-h = help
+		-p <port> = listen to <port>
+		-s [ fork | thread | prefork | mux ] = request handling method(one of for Grade D)
+
+Grade C:
+	command line options
+		-d = run as daemon
+		-l = log to logfile
+
+Grade B:
+	primary keys
+	column-wise select
+	DELETE
+	UPDATE
+
+Grade A:
+	atleast two concurrent request handle methods (-s [ fork | thread | prefork | mux ])
