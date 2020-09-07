@@ -33,7 +33,6 @@ struct thread_pool_work
 };
 
 
-
 thread_pool_t* thread_pool_create(size_t size);
 void thread_pool_destroy(thread_pool_t* pool);
 bool thread_pool_add_work(thread_pool_t* pool, thread_func_t func, void* arg);
