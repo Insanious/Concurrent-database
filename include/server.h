@@ -38,11 +38,22 @@ struct server
 };
 
 
+typedef struct connection_args connection_args;
+
+struct connection_args
+{
+	server_t* server;
+	int socket;
+};
+
+
 server_t* server_create(size_t queue_size, size_t nr_of_threads);
 void server_listen(server_t* server);
 void server_destroy(server_t* server);
+void server_init(server_t* server);
 
-// void handle_connection1(void* arg);
+void handle_connection(void* arg);
+void assign_work(void* arg);
 
 
 #endif

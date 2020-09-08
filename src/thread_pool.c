@@ -174,7 +174,6 @@ void thread_pool_wait(thread_pool_t* pool)
 	if (!pool) // sanity check
 		return;
 
-
 	pthread_mutex_lock(&(pool->work_mutex));
 	while (true)
 	{

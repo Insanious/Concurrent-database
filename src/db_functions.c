@@ -19,9 +19,11 @@ void execute_request(void* arg)
 	}
 
 	if (success)
-		success = true;// printf("request executed correctly\n");
+		printf("request executed correctly\n");
 	else
-		success = true;// printf("error: request did not execute correctly\n");
+		printf("error: request did not execute correctly\n");
+
+	destroy_request(req); // cleanup
 }
 
 bool create_table(request_t* req)
@@ -40,7 +42,10 @@ bool create_table(request_t* req)
 	while (col)
 	{
 		if (col->data_type == DT_VARCHAR && !is_valid_varchar(col))
+		{
+			printf("error: VARCHAR contained faulty value '%d'\n", col->char_size);
 			return false;
+		}
 
 		col = col->next;
 	}
