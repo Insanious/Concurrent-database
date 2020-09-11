@@ -67,7 +67,7 @@ server_t* server_create(size_t queue_size, size_t nr_of_threads)
 	return server;
 }
 
-void server_listen(server_t* server, size_t nr_of_sockets)
+void server_listen(server_t* server)
 {
 	if (listen(server->socket, 30) != 0)
 		perror("error: listen failed\n");
