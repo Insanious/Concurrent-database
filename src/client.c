@@ -23,6 +23,8 @@ int main(int argc, char* argv[])
 
 	// Create the socket.
 	client_socket = socket(PF_INET, SOCK_STREAM, 0);
+	if (setsockopt(client_socket, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0)
+		printf("setsockopt(SO_REUSEADDR) failed\n");
 
 	//Configure settings of the server address
 	// Address family is Internet
@@ -37,15 +39,14 @@ int main(int argc, char* argv[])
 
 	//Connect the socket to the server using the address
 	address_size = sizeof server_address;
-	printf("con:%d\n", connect(client_socket, (struct sockaddr *) &server_address, address_size));
+	connect(client_socket, (struct sockaddr *) &server_address, address_size);
 	// while ((connect(client_socket, (struct sockaddr *) &server_address, address_size) == -1));
 	strcpy(message, argv[1]);
 
-	printf("trying to send\n");
 	if (send(client_socket, message, strlen(message), 0) < 0)
 		printf("Send failed\n");
-
-	printf("sent\n");
+	else
+		printf("sent\n");
 
 	close(client_socket);
 

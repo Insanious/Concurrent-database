@@ -18,10 +18,10 @@ void execute_request(void* arg)
 		case RT_UPDATE:	printf("RT_UPDATE\n");/*success = create_table(req);*/ break;
 	}
 
-	if (success)
-		printf("request executed correctly\n");
-	else
-		printf("error: request did not execute correctly\n");
+	// if (success)
+	// 	printf("request executed correctly\n");
+	// else
+	// 	printf("error: request did not execute correctly\n");
 
 	destroy_request(req); // cleanup
 }
@@ -34,7 +34,7 @@ bool create_table(request_t* req)
 
 	if (table_exists(table.name))
 	{
-		printf("error: table '%s' already exists\n", table.name);
+		// printf("error: table '%s' already exists\n", table.name);
 		return false;
 	}
 
@@ -71,6 +71,8 @@ bool print_tables()
 		printf("%s\n", token);
 	}
 
+	fclose(meta);
+
 	return true;
 }
 
@@ -102,8 +104,11 @@ bool print_schema(char* name)
 			printf("%s\n", token); // print type
 		}
 
+		fclose(meta);
 		return true;
 	}
+
+	fclose(meta);
 
 	printf("error: table '%s' does not exists\n", name);
 	return false; // didn't find table, unsuccessful
@@ -111,7 +116,12 @@ bool print_schema(char* name)
 
 void add_table(table_t* table)
 {
-	FILE* meta = fopen(META_FILE, "a");
+	FILE* meta;
+	if (!(meta = fopen(META_FILE, "a")))
+	{
+		perror("fopen");
+		return;
+	}
 	fprintf(meta, "%s%s", table->name, COL_DELIM);
 
 	column_t* col = table->columns;
@@ -148,8 +158,13 @@ bool table_exists(char* name)
 	{
 		token = strtok(line, COL_DELIM);
 		if (strcmp(token, name) == 0)
+		{
+			fclose(meta);
 			return true;
+		}
 	}
+
+	fclose(meta);
 
 	return false;
 }

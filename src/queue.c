@@ -7,7 +7,6 @@ queue_t* new_queue(size_t size)
 	queue->max_size = size;
 	queue->size = queue->front = 0;
 	queue->back = -1;
-	// pthread_mutex_init(&(queue->lock), NULL);
 
 	return queue;
 }

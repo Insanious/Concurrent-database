@@ -11,9 +11,10 @@
 #include <netinet/in.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <errno.h>
 
-#include "request.h"
 #include "queue.h"
+#include "request.h"
 #include "thread_pool.h"
 #include "db_functions.h"
 
@@ -43,7 +44,8 @@ typedef struct connection_args connection_args;
 struct connection_args
 {
 	server_t* server;
-	int socket;
+	// int socket;
+	char* msg;
 };
 
 
