@@ -44,6 +44,8 @@ struct request_t {
 	column_t* columns;
 	/* column which to use in the WHERE statement */
 	column_t* where;
+
+	size_t from;
 };
 
 /*

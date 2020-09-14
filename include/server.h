@@ -19,7 +19,6 @@
 #include "db_functions.h"
 
 typedef struct server server_t;
-
 struct server
 {
 	queue_t* request_queue;
@@ -40,11 +39,10 @@ struct server
 
 
 typedef struct connection_args connection_args;
-
 struct connection_args
 {
 	server_t* server;
-	// int socket;
+	size_t socket;
 	char* msg;
 };
 
@@ -54,7 +52,7 @@ void server_listen(server_t* server);
 void server_destroy(server_t* server);
 void server_init(server_t* server);
 
-void handle_connection(void* arg);
+// void handle_connection(void* arg);
 void assign_work(void* arg);
 
 

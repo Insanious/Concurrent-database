@@ -3,7 +3,7 @@
 queue_t* new_queue(size_t size)
 {
 	queue_t* queue = (queue_t*)malloc(sizeof(queue_t));
-	queue->requests = (request_t**)malloc(size * sizeof(request_t*));
+	queue->requests = (client_request**)malloc(size * sizeof(client_request*));
 	queue->max_size = size;
 	queue->size = queue->front = 0;
 	queue->back = -1;
@@ -20,7 +20,7 @@ void delete_queue(queue_t* queue)
 	free(queue);
 }
 
-bool enqueue(queue_t* queue, request_t* req)
+bool enqueue(queue_t* queue, client_request* req)
 {
 	if (queue->size == queue->max_size)
 		return false;
@@ -32,23 +32,23 @@ bool enqueue(queue_t* queue, request_t* req)
 	return true;
 }
 
-request_t* front(queue_t* queue)
-{
-	return (empty(queue)) ? NULL : queue->requests[queue->front];
-}
-
-request_t* dequeue(queue_t* queue)
+client_request* dequeue(queue_t* queue)
 {
 	if (!queue->size)
 		return NULL;
 
-	request_t* front = queue->requests[queue->front];	// save return value
+	client_request* front = queue->requests[queue->front];	// save return value
 	queue->requests[queue->front] = NULL;				// remove from queue
 
 	queue->front = (queue->front + 1) % queue->max_size;
 	queue->size--;
 
 	return front;
+}
+
+client_request* front(queue_t* queue)
+{
+	return (empty(queue)) ? NULL : queue->requests[queue->front];
 }
 
 bool empty(queue_t* queue)

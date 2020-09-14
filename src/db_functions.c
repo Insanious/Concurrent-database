@@ -1,41 +1,72 @@
 #include "db_functions.h"
 
+// static char* create_format_buffer(const char* format, ...)
+// {
+// 	va_list args;
+// 	size_t len = 0;
+// 	char* buffer = NULL;
+//
+// 	va_start(args, format);
+//
+// 	len = vsnprintf(NULL, 0, format, args) + 1;
+// 	printf("len:%d\n", len);
+// 	buffer = (char *)malloc(len);
+// 	vsnprintf(buffer, len, format, args);
+// 	// vsprintf(buffer, format, args);
+// 	// vfprintf(stdout, format, args);
+//
+// 	va_end(args);
+//
+// 	return buffer;
+// }
+
 void execute_request(void* arg)
 {
-	request_t* req = arg;
+	client_request* cli_req = ((client_request *)arg);
 
-	bool success = false;
-	switch(req->request_type)
+	return_value ret_val;
+	switch(cli_req->request->request_type)
 	{
-		case RT_CREATE:	success = create_table(req); break;
-		case RT_TABLES:	success = print_tables(); break;
-		case RT_SCHEMA:	success = print_schema(req->table_name); break;
-		case RT_DROP:	printf("RT_DROP\n");/*success = create_table(req);*/ break;
-		case RT_INSERT:	printf("RT_INSERT\n");/*success = create_table(req);*/ break;
-		case RT_SELECT:	printf("RT_SELECT\n");/*success = create_table(req);*/ break;
-		case RT_QUIT:	printf("RT_QUIT\n");/*success = create_table(req);*/ break;
-		case RT_DELETE:	printf("RT_DELETE\n");/*success = create_table(req);*/ break;
+		case RT_CREATE:	create_table(cli_req->request, &ret_val); break;
+		case RT_TABLES:	print_tables(&ret_val); break;
+		case RT_SCHEMA:	print_schema(cli_req->request->table_name, &ret_val); break;
+		case RT_DROP:	printf("RT_DROP\n");/*ret_val = create_table(req);*/ break;
+		case RT_INSERT:	printf("RT_INSERT\n");/*ret_val = create_table(req);*/ break;
+		case RT_SELECT:	printf("RT_SELECT\n");/*ret_val = create_table(req);*/ break;
+		case RT_QUIT:	printf("RT_QUIT\n");/*ret_val = create_table(req);*/ break;
+		case RT_DELETE:	printf("RT_DELETE\n");/*ret_val = create_table(req);*/ break;
 		case RT_UPDATE:	printf("RT_UPDATE\n");/*success = create_table(req);*/ break;
 	}
 
-	// if (success)
-	// 	printf("request executed correctly\n");
-	// else
-	// 	printf("error: request did not execute correctly\n");
+	if (ret_val.msg && send(cli_req->client_socket, ret_val.msg, strlen(ret_val.msg), 0) < 0)
+		perror("send\n");
 
-	destroy_request(req); // cleanup
+	if (close(cli_req->client_socket) == -1)
+		perror("close");
+
+	// cleanup
+	destroy_request(cli_req->request);
+	free(cli_req);
+
+	free(ret_val.msg);
 }
 
-bool create_table(request_t* req)
+void create_table(request_t* req, return_value* ret_val)
 {
+	size_t len;
+	char* buffer;
 	table_t table;
 	table.name = req->table_name;
 	table.columns = req->columns;
 
 	if (table_exists(table.name))
 	{
-		// printf("error: table '%s' already exists\n", table.name);
-		return false;
+		len = snprintf(NULL, 0, "error: table '%s' already exists", table.name);
+		buffer = (char *)malloc(len + 1);
+		snprintf(buffer, len + 1, "error: table '%s' already exists", table.name);
+		ret_val->msg = buffer;
+		ret_val->success = false;
+		return;
 	}
 
 	column_t* col = req->columns;
@@ -43,8 +74,12 @@ bool create_table(request_t* req)
 	{
 		if (col->data_type == DT_VARCHAR && !is_valid_varchar(col))
 		{
-			printf("error: VARCHAR contained faulty value '%d'\n", col->char_size);
-			return false;
+			len = snprintf(NULL, 0, "error: VARCHAR contained faulty value '%d'", col->char_size);
+			buffer = (char *)malloc(len + 1);
+			snprintf(buffer, len + 1, "error: VARCHAR contained faulty value '%d'", col->char_size);
+			ret_val->msg = buffer;
+			ret_val->success = false;
+			return;
 		}
 
 		col = col->next;
@@ -52,41 +87,69 @@ bool create_table(request_t* req)
 
 	add_table(&table);
 
-	return true;
+	len = snprintf(NULL, 0, "successfully created table '%s'", table.name);
+	buffer = (char *)malloc(len + 1);
+	snprintf(buffer, len + 1, "successfully created table '%s'", table.name);
+	ret_val->msg = buffer;
+	ret_val->success = true;
 }
 
-bool print_tables()
+void print_tables(return_value* ret_val)
 {
+	size_t len;
+	char* buffer;
+
 	FILE* meta = fopen(META_FILE, "r");
 	if (!meta) // if the database is empty, the table can't exist in the database
-		return true;
+	{
+		len = snprintf(NULL, 0, "error: %s does not exist", META_FILE);
+		buffer = (char *)malloc(len + 1);
+		snprintf(buffer, len + 1, "error: %s does not exist", META_FILE);
+		ret_val->msg = buffer;
+		ret_val->success = false;
+		return;
+	}
 
+	buffer = (char*)malloc(2048 * sizeof(char)); // malloc and pray that 2048 is enough
 	// check database meta file for the table name
 	char* token = NULL;
 	char line[256];
+	for (int i = 0; i < 256; i++) line[i] = '\0';
 
 	while (fgets(line, sizeof(line), meta))
 	{
 		token = strtok(line, COL_DELIM);
-		printf("%s\n", token);
+		strcat(buffer, token);
+		strcat(buffer, "\n");
 	}
 
 	fclose(meta);
 
-	return true;
+	ret_val->msg = buffer;
+	ret_val->success = true;
 }
 
-bool print_schema(char* name)
+void print_schema(char* name, return_value* ret_val)
 {
+	size_t len;
+	char* buffer;
+
 	FILE* meta = fopen(META_FILE, "r");
 	if (!meta) // if the database is empty, the table can't exist in the database
 	{
-		printf("%s does not exist\n", META_FILE);
-		return false;
+		printf("nani\n");
+		len = snprintf(NULL, 0, "error: %s does not exist", META_FILE);
+		buffer = (char *)malloc(len + 1);
+		snprintf(buffer, len + 1, "error: %s does not exist", META_FILE);
+		ret_val->msg = buffer;
+		ret_val->success = false;
+		return;
 	}
 
 	char* token = NULL;
 	char line[256];
+	for (int i = 0; i < 256; i++) line[i] = '\0';
+
 	while (fgets(line, sizeof(line), meta))
 	{
 		token = strtok(line, COL_DELIM);
@@ -94,24 +157,38 @@ bool print_schema(char* name)
 			continue;
 
 		// found the table
+		char buf[2048];
+		for (int i = 0; i < 2048; i++) buf[i] = '\0';
+
 		while ((token = strtok(0, TYPE_DELIM))) // print all the columns of the table
 		{
-			printf("%s\t", token); // print name
+			strcat(buf, token);
+			strcat(buf, "\t");
 			if (strlen(token) < 8) // format output for smaller names
-				printf("\t"); // print name
+				strcat(buf, "\t");
 
 			token = strtok(0, COL_DELIM);
-			printf("%s\n", token); // print type
+			strcat(buf, token);
+			strcat(buf, "\n");
 		}
 
+		len = strlen(buf);
+		if (!(buffer = (char *)malloc(len + 1)))
+			perror("malloc");
+		strcpy(buffer, buf);
+		ret_val->msg = buffer;
+		ret_val->success = false;
 		fclose(meta);
-		return true;
+		return;
 	}
 
 	fclose(meta);
 
-	printf("error: table '%s' does not exists\n", name);
-	return false; // didn't find table, unsuccessful
+	len = snprintf(NULL, 0, "error: table '%s' does not exists", name);
+	buffer = (char *)malloc(len + 1);
+	snprintf(buffer, len + 1, "error: table '%s' does not exists", name);
+	ret_val->msg = buffer;
+	ret_val->success = false;
 }
 
 void add_table(table_t* table)
@@ -153,6 +230,7 @@ bool table_exists(char* name)
 
 	char* token = NULL;
 	char line[256];
+	for (int i = 0; i < 256; i++) line[i] = '\0';
 
 	while (fgets(line, sizeof(line), meta)) // get each line of the meta file
 	{

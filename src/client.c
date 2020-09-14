@@ -45,8 +45,17 @@ int main(int argc, char* argv[])
 
 	if (send(client_socket, message, strlen(message), 0) < 0)
 		printf("Send failed\n");
-	else
-		printf("sent\n");
+	// else
+	// 	printf("sent\n");
+
+	memset(&message, 0, 1024); // clear
+
+	if (recv(client_socket, message, 1024, 0) == -1)
+	{
+		perror("recv");
+		return 1;
+	}
+	printf("%s\n", message);
 
 	close(client_socket);
 
