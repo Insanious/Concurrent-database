@@ -114,8 +114,8 @@ void server_listen(server_t *server)
 
 		if (!(length = strlen(client_msg)))
 			continue;
-		char *msg = (char *)malloc((length + 1) * sizeof(char)); // malloc new msg so it can persist with the new thread
-		strcpy(msg, client_msg);								 // copy client message to a new string
+		msg = (char *)malloc((length + 1) * sizeof(char)); // malloc new msg so it can persist with the new thread
+		strcpy(msg, client_msg);						   // copy client message to a new string
 
 		connection_args *args = malloc(sizeof(connection_args)); // malloc new args so it can persist with the new thread
 		args->server = server;
