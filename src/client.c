@@ -4,11 +4,12 @@
 #include <string.h>
 #include <arpa/inet.h>
 #include <stdlib.h>
-#include <fcntl.h> // for open
+#include <fcntl.h>	// for open
 #include <unistd.h> // for close
-#include<pthread.h>
+#include <pthread.h>
+#include "private_variables.h"
 
-int main(int argc, char* argv[])
+int main(int argc, char *argv[])
 {
 	if (argc != 2)
 	{
@@ -34,12 +35,12 @@ int main(int argc, char* argv[])
 	server_address.sin_port = htons(7798);
 
 	//Set IP address to localhost
-	server_address.sin_addr.s_addr = inet_addr("192.168.0.2");
+	server_address.sin_addr.s_addr = inet_addr(IP_ADDR);
 	memset(server_address.sin_zero, '\0', sizeof(server_address.sin_zero));
 
 	//Connect the socket to the server using the address
 	address_size = sizeof server_address;
-	connect(client_socket, (struct sockaddr *) &server_address, address_size);
+	connect(client_socket, (struct sockaddr *)&server_address, address_size);
 	// while ((connect(client_socket, (struct sockaddr *) &server_address, address_size) == -1));
 	strcpy(message, argv[1]);
 
