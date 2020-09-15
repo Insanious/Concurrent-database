@@ -1,6 +1,6 @@
 LFLAGS=-Llib
 LIB=-lrequest -lpthread -lrt
-FLAGS=-g -Wall -Wpedantic -std=c99 -O0 -da
+FLAGS=-g -Werror -Wall -Wpedantic -std=c99 -O0 -da
 CXX=gcc
 SRC=src
 BUILD=build
