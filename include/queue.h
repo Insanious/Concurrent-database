@@ -19,7 +19,6 @@ typedef struct queue_t queue_t;
 struct queue_t
 {
 	client_request** requests;
-	// pthread_mutex_t lock;
 	size_t size;
 	size_t max_size;
 	size_t front;
