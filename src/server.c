@@ -1,5 +1,4 @@
 #include "server.h"
-#include "private_variables.h"
 
 void handle_connection(void *arg)
 {
@@ -108,9 +107,6 @@ void server_listen(server_t *server)
 			perror("recv");
 			continue;
 		}
-
-		//if (close(new_socket) == -1)
-		//	perror("close(new_socket)");
 
 		if (!(length = strlen(client_msg)))
 			continue;
