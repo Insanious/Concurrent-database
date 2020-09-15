@@ -1,6 +1,8 @@
 #ifndef DB_FUNCTIONS_H
 #define DB_FUNCTIONS_H
 
+#define  _POSIX_C_SOURCE 200809L
+
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,6 +19,7 @@
 #define COL_DELIM ","
 #define TYPE_DELIM " "
 #define ROW_DELIM "\n"
+#define MULTIPLIER 2
 
 typedef struct return_value return_value;
 struct return_value
