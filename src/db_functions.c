@@ -64,8 +64,6 @@ void execute_request(void *arg)
 
 void create_table(request_t *req, return_value *ret_val)
 {
-	size_t len;
-	char *buffer;
 	table_t table;
 	table.name = req->table_name;
 	table.columns = req->columns;
@@ -98,7 +96,6 @@ void create_table(request_t *req, return_value *ret_val)
 
 void print_tables(return_value *ret_val)
 {
-	size_t len;
 	char *buffer;
 
 	FILE *meta = fopen(META_FILE, "r");
