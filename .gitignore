@@ -2,3 +2,4 @@
 meta.txt
 client
 db
+/include/private_variables.h
