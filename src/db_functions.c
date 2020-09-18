@@ -1,15 +1,31 @@
 #include "db_functions.h"
 
+static size_t realloc_str(char** str, size_t size)
+{
+	if (!*(str)) return 0;
+
+	if (!(*str = (char*)realloc(*str, (size_t)(size * MULTIPLIER))))
+		perror("realloc");
+
+	return (size_t)(size * MULTIPLIER);
+}
+
 static char *create_format_buffer(const char *format, ...)
 {
-	size_t len = 0;
+	if (!format)
+		return NULL;
+
 	va_list args;
-	char *buffer = NULL;
-	len = vsnprintf(NULL, 0, format, args) + 1;
-	buffer = (char *)malloc(len);
+
 	va_start(args, format);
-	vsnprintf(buffer, len, format, args);
-	va_end(args);
+	size_t length = vsnprintf(NULL, 0, format, args) + 1;
+	va_end (args);
+
+	char *buffer = (char*)malloc(length);
+	va_start(args, format);
+	vsnprintf(buffer, length, format, args);
+	va_end (args);
+
 	return buffer;
 }
 
@@ -70,7 +86,7 @@ void create_table(request_t *req, return_value *ret_val)
 
 	if (table_exists(table.name))
 	{
-		ret_val->msg = create_format_buffer("PrintFError: table '%s' already exists", table.name);
+		ret_val->msg = create_format_buffer("error: table '%s' already exists", table.name);
 		ret_val->success = false;
 		return;
 	}
@@ -97,28 +113,35 @@ void create_table(request_t *req, return_value *ret_val)
 void print_tables(return_value *ret_val)
 {
 	char *buffer;
+	ret_val->success = false;
 
 	FILE *meta = fopen(META_FILE, "r");
 	if (!meta) // if the database is empty, the table can't exist in the database
 	{
 		ret_val->msg = create_format_buffer("error: %s does not exist", META_FILE);
-		ret_val->success = false;
 		return;
 	}
 
-	buffer = (char *)malloc(2048 * sizeof(char)); // malloc and pray that 2048 is enough
-	// check database meta file for the table name
-	char *token = NULL;
-	char line[256];
-	for (int i = 0; i < 256; i++)
-		line[i] = '\0';
+	char* token = NULL;
+	char* line = NULL;
+	size_t nr_of_chars = 0;
+	size_t buffer_length = 64;
+	buffer = (char *)malloc(buffer_length * sizeof(char));
 
-	while (fgets(line, sizeof(line), meta))
+	// check database meta file for the table name
+	while (getline(&line, &nr_of_chars, meta) != -1)
 	{
 		token = strtok(line, COL_DELIM);
+		// realloc if token can't fit in buffer
+		while (strlen(token) > buffer_length - strlen(buffer))
+			buffer_length = realloc_str(&buffer, buffer_length);
 		strcat(buffer, token);
 		strcat(buffer, "\n");
 	}
+	free(line);
+
+	// remove last newline
+	buffer[strlen(buffer) - 1] = '\0';
 
 	fclose(meta);
 
@@ -131,20 +154,20 @@ void print_schema(char *name, return_value *ret_val)
 	size_t len;
 	char *buffer;
 
+	ret_val->success = false;
+
 	FILE *meta = fopen(META_FILE, "r");
 	if (!meta) // if the database is empty, the table can't exist in the database
 	{
 		ret_val->msg = create_format_buffer("error: %s does not exist", META_FILE);
-		ret_val->success = false;
 		return;
 	}
 
-	char *token = NULL;
-	char line[256];
-	for (int i = 0; i < 256; i++)
-		line[i] = '\0';
+	char* token = NULL;
+	char* line = NULL;
+	size_t nr_of_chars = 0;
 
-	while (fgets(line, sizeof(line), meta))
+	while (getline(&line, &nr_of_chars, meta) != -1)
 	{
 		token = strtok(line, COL_DELIM);
 		if (strcmp(token, name) != 0)
@@ -170,9 +193,10 @@ void print_schema(char *name, return_value *ret_val)
 		len = strlen(buf);
 		if (!(buffer = (char *)malloc(len + 1)))
 			perror("malloc");
+
 		strcpy(buffer, buf);
 		ret_val->msg = buffer;
-		ret_val->success = false;
+		ret_val->success = true;
 		fclose(meta);
 		return;
 	}
@@ -180,7 +204,6 @@ void print_schema(char *name, return_value *ret_val)
 	fclose(meta);
 
 	ret_val->msg = create_format_buffer("error: table '%s' does not exists", name);
-	ret_val->success = false;
 }
 
 void add_table(table_t *table)
