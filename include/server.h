@@ -17,6 +17,7 @@
 #include "request.h"
 #include "thread_pool.h"
 #include "db_functions.h"
+#include "private_variables.h"
 
 typedef struct server server_t;
 struct server

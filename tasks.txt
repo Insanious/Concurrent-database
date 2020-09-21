@@ -2,7 +2,7 @@ Grade D:
 	CREATE - DONE
 	.tables - DONE
 	.schema - DONE
-	DELETE
+	DELETE TABLE
 	INSERT
 	SELECT
 	.quit
@@ -21,7 +21,7 @@ Grade C:
 Grade B:
 	primary keys
 	column-wise select
-	DELETE
+	DELETE field
 	UPDATE
 
 Grade A:
