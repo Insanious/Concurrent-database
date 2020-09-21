@@ -29,7 +29,7 @@ run: db
 	bash test.sh
 
 re:
-	make clean && make db
+	make clean && make db && make client
 
 rerun:
 	make clean && make run
