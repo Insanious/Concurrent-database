@@ -1,5 +1,4 @@
 /db_server/build
-/database/*
 /db_server/client
 /db_server/db
 /db_server/include/private_variables.h
