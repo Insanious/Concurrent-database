@@ -255,7 +255,7 @@ void add_table(table_t *table)
 	fcntl(fileD, F_SETLK, &lock);
 
 	close(fileD);
-	string_free(buffer);
+	string_free(&buffer);
 }
 
 bool table_exists(char *name)

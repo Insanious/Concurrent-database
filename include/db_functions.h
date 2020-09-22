@@ -1,9 +1,9 @@
 #ifndef DB_FUNCTIONS_H
 #define DB_FUNCTIONS_H
 
-#include <fcntl.h>
 #define _POSIX_C_SOURCE 200809L
 
+#include <fcntl.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
