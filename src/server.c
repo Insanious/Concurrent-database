@@ -5,14 +5,15 @@ void handle_connection(void *arg)
 	connection_args *args = ((connection_args *)arg);
 
 	request_t *req = parse_request(args->msg);
-	if (req == NULL)
-	{
-		fprintf(stderr, "Parse error%s\n", args->msg);
-	}
+
 	client_request *cli_req = (client_request *)malloc(sizeof(client_request));
 	cli_req->request = req;
 	cli_req->client_socket = args->socket;
-
+	if (req == NULL)
+	{
+		cli_req->error = (char *)malloc((strlen(args->msg) + 1) * sizeof(char));
+		strcpy(cli_req->error, args->msg);
+	}
 	sem_wait(&(args->server->empty_sem));			   // wait here until the queue is not full
 	pthread_mutex_lock(&(args->server->enqueue_lock)); // lock so other threads can't enqueue
 	// the loop here is actually unnessecary since the thread got past the empty_sem but just for sanity we put it in a while loop
