@@ -102,6 +102,7 @@ void create_table(request_t *req, return_value *ret_val)
 	{
 		ret_val->msg = create_format_buffer("error: table '%s' already exists", table.name);
 		ret_val->success = false;
+		fclose(meta);
 		return;
 	}
 
@@ -112,6 +113,7 @@ void create_table(request_t *req, return_value *ret_val)
 		{
 			ret_val->msg = create_format_buffer("error: VARCHAR contained faulty value '%d'", col->char_size);
 			ret_val->success = false;
+			fclose(meta);
 			return;
 		}
 
