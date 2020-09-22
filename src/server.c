@@ -7,7 +7,7 @@ void handle_connection(void *arg)
 	request_t *req = parse_request(args->msg);
 	if (req == NULL)
 	{
-		perror("Parse error: %s", args->msg);
+		fprintf(stderr, "Parse error%s", args->msg);
 	}
 	client_request *cli_req = (client_request *)malloc(sizeof(client_request));
 	cli_req->request = req;
