@@ -19,6 +19,7 @@
 #define COL_DELIM ","
 #define TYPE_DELIM " "
 #define ROW_DELIM "\n"
+#define START_LENGTH 64
 #define MULTIPLIER 2
 
 typedef struct return_value return_value;

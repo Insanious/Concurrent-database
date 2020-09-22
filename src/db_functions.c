@@ -125,8 +125,8 @@ void print_tables(return_value *ret_val)
 	char* token = NULL;
 	char* line = NULL;
 	size_t nr_of_chars = 0;
-	size_t buffer_length = 64;
-	buffer = (char *)malloc(buffer_length * sizeof(char));
+	size_t buffer_length = START_LENGTH;
+	buffer = (char *)calloc(buffer_length, sizeof(char));
 
 	// check database meta file for the table name
 	while (getline(&line, &nr_of_chars, meta) != -1)
@@ -151,9 +151,6 @@ void print_tables(return_value *ret_val)
 
 void print_schema(char *name, return_value *ret_val)
 {
-	size_t len;
-	char *buffer;
-
 	ret_val->success = false;
 
 	FILE *meta = fopen(META_FILE, "r");
@@ -174,27 +171,27 @@ void print_schema(char *name, return_value *ret_val)
 			continue;
 
 		// found the table
-		char buf[2048];
-		for (int i = 0; i < 2048; i++)
-			buf[i] = '\0';
+		size_t buffer_length = START_LENGTH;
+		char* buffer = (char *)malloc(buffer_length * sizeof(char));
 
 		while ((token = strtok(0, TYPE_DELIM))) // print all the columns of the table
 		{
-			strcat(buf, token);
-			strcat(buf, "\t");
+			while (strlen(token) + 2 > buffer_length - strlen(buffer)) // +2 for the tabs
+				buffer_length = realloc_str(&buffer, buffer_length);
+
+			strcat(buffer, token);
+			strcat(buffer, "\t");
 			if (strlen(token) < 8) // format output for smaller names
-				strcat(buf, "\t");
+				strcat(buffer, "\t");
 
 			token = strtok(0, COL_DELIM);
-			strcat(buf, token);
-			strcat(buf, "\n");
+			while (strlen(token) + 1 > buffer_length - strlen(buffer)) // +1 for the newline
+				buffer_length = realloc_str(&buffer, buffer_length);
+
+			strcat(buffer, token);
+			strcat(buffer, "\n");
 		}
 
-		len = strlen(buf);
-		if (!(buffer = (char *)malloc(len + 1)))
-			perror("malloc");
-
-		strcpy(buffer, buf);
 		ret_val->msg = buffer;
 		ret_val->success = true;
 		fclose(meta);
@@ -244,20 +241,20 @@ bool table_exists(char *name)
 		return false;
 
 	char *token = NULL;
-	char line[256];
-	for (int i = 0; i < 256; i++)
-		line[i] = '\0';
+	char* line = NULL;
+	size_t nr_of_chars = 0;
 
-	while (fgets(line, sizeof(line), meta)) // get each line of the meta file
+	while (getline(&line, &nr_of_chars, meta) != -1)
 	{
 		token = strtok(line, COL_DELIM);
 		if (strcmp(token, name) == 0)
 		{
 			fclose(meta);
+			free(line);
 			return true;
 		}
 	}
-
+	free(line);
 	fclose(meta);
 
 	return false;
