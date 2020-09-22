@@ -1,7 +1,7 @@
-/build
-meta.txt
-client
-db
-/include/private_variables.h
-lockdemo.c
-lockme.txt
+/db_server/build
+/database/*
+/db_server/client
+/db_server/db
+/db_server/include/private_variables.h
+/db_server/lockdemo.c
+/db_server/lockme.txt

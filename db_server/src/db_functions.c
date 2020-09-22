@@ -121,6 +121,7 @@ void create_table(request_t *req, return_value *ret_val)
 	}
 
 	add_table(&table, meta);
+	create_data_file(&table.name);
 
 	fclose(meta);
 
@@ -287,4 +288,10 @@ bool table_exists(char *name, FILE *meta)
 bool is_valid_varchar(column_t *col)
 {
 	return col->char_size >= 0;
+}
+
+void create_data_file(char *t_name)
+{
+	int data_fd = open(t_name, O_CREAT);
+	close(data_fd);
 }
