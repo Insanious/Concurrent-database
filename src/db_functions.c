@@ -275,7 +275,6 @@ bool table_exists(char *name, FILE *meta)
 		token = strtok(line, COL_DELIM);
 		if (strcmp(token, name) == 0)
 		{
-			fclose(meta);
 			free(line);
 			return true;
 		}
