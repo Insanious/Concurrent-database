@@ -5,6 +5,10 @@ void handle_connection(void *arg)
 	connection_args *args = ((connection_args *)arg);
 
 	request_t *req = parse_request(args->msg);
+	if (req == NULL)
+	{
+		perror("Parse error: %s", args->msg);
+	}
 	client_request *cli_req = (client_request *)malloc(sizeof(client_request));
 	cli_req->request = req;
 	cli_req->client_socket = args->socket;
