@@ -70,8 +70,6 @@ void execute_request(void *arg)
 		}
 		if (ret_val.msg && send(cli_req->client_socket, ret_val.msg, strlen(ret_val.msg), 0) < 0)
 			perror("send\n");
-
-		perror("close");
 	}
 	else
 	{
@@ -81,8 +79,9 @@ void execute_request(void *arg)
 		free(cli_req->error);
 	}
 	if (close(cli_req->client_socket) == -1)
-		// cleanup
-		destroy_request(cli_req->request);
+		perror("close");
+	// cleanup
+	destroy_request(cli_req->request);
 	free(cli_req);
 }
 
@@ -92,7 +91,14 @@ void create_table(request_t *req, return_value *ret_val)
 	table.name = req->table_name;
 	table.columns = req->columns;
 
-	if (table_exists(table.name))
+	FILE *meta = fopen(META_FILE, "r");
+	int metaDescriptor = fileno(meta);
+	struct flock lock;
+	memset(&lock, 0, sizeof(lock));
+	lock.l_type = F_WRLCK;
+
+	fcntl(metaDescriptor, F_SETLKW, &lock);
+	if (table_exists(table.name, meta))
 	{
 		ret_val->msg = create_format_buffer("error: table '%s' already exists", table.name);
 		ret_val->success = false;
@@ -112,7 +118,9 @@ void create_table(request_t *req, return_value *ret_val)
 		col = col->next;
 	}
 
-	add_table(&table);
+	add_table(&table, meta);
+
+	fclose(meta);
 
 	ret_val->msg = create_format_buffer("successfully created table '%s'", table.name);
 	ret_val->success = true;
@@ -211,65 +219,49 @@ void print_schema(char *name, return_value *ret_val)
 	ret_val->msg = create_format_buffer("error: table '%s' does not exists", name);
 }
 
-void add_table(table_t *table)
+void add_table(table_t *table, FILE *meta)
 {
 	// Issue: When using bytelocking two tables of the same name could occur.
 	// Solution: Lock the whole file, look for table name, if it doesn't exist add it, unlock the file.
-	struct dynamicstr *buffer;
-	string_init(&buffer);
-	string_set(&buffer, "%s%s", table->name, COL_DELIM);
+
+	if (!(meta = freopen(NULL, "a", meta)))
+	{
+		perror("fopen");
+		return;
+	}
+
+	int metaDescriptor = fileno(meta);
+
+	struct flock lock;
+	memset(&lock, 0, sizeof(lock));
+	lock.l_type = F_WRLCK;
+
+	fcntl(metaDescriptor, F_SETLKW, &lock);
+
+	fprintf(meta, "%s%s", table->name, COL_DELIM);
 
 	column_t *col = table->columns;
 	while (col->next) // loop while the column is not the last one
 	{
-		// write each column to the buffer with the appropriate format
+		// write each column to the file with the appropriate format
 		if (col->data_type == DT_INT) // INT name,
-			string_set(&buffer, "%s%sINT%s", col->name, TYPE_DELIM, COL_DELIM);
+			fprintf(meta, "%s%sINT%s", col->name, TYPE_DELIM, COL_DELIM);
 		else // VARCHAR(N) name,
-			string_set(&buffer, "%s%sVARCHAR(%d)%s", col->name, TYPE_DELIM, col->char_size, COL_DELIM);
+			fprintf(meta, "%s%sVARCHAR(%d)%s", col->name, TYPE_DELIM, col->char_size, COL_DELIM);
 
 		col = col->next;
 	}
 	// handle last one separately to instead use a newline instead of the column delimiter
 	if (col->data_type == DT_INT) // INT name,
-		string_set(&buffer, "%s%sINT%s", col->name, TYPE_DELIM, ROW_DELIM);
+		fprintf(meta, "%s%sINT%s", col->name, TYPE_DELIM, ROW_DELIM);
 	else // VARCHAR(N) name,
-		string_set(&buffer, "%s%sVARCHAR(%d)%s", col->name, TYPE_DELIM, col->char_size, ROW_DELIM);
-
-	int fileD = open(META_FILE, O_RDWR | O_NONBLOCK);
-	if (!(fileD > 0))
-	{
-		perror("open");
-		return;
-	}
-
-	struct flock lock;
-	memset(&lock, 0, sizeof(lock));
-
-	lock.l_type = F_WRLCK;
-	lock.l_whence = SEEK_END;
-	lock.l_start = 0;
-	lock.l_len = buffer->size;
-
-	while (fcntl(fileD, F_SETLK, &lock) < 0)
-		;
-
-	lseek(fileD, 0, SEEK_END);
-	// buffer->size -1 to not write the null character
-	write(fileD, buffer->buffer, buffer->size - 1);
-
-	lock.l_type = F_UNLCK;
-	fcntl(fileD, F_SETLK, &lock);
-
-	close(fileD);
-	string_free(&buffer);
+		fprintf(meta, "%s%sVARCHAR(%d)%s", col->name, TYPE_DELIM, col->char_size, ROW_DELIM);
 }
 
-bool table_exists(char *name)
+bool table_exists(char *name, FILE *meta)
 {
 	// check database meta file for the table name
-	FILE *meta = fopen(META_FILE, "r");
-	if (!meta) // if the database is empty, the table can't exist in the database
+	if (!(freopen(NULL, "r", meta))) // if the database is empty, the table can't exist in the database
 		return false;
 
 	char *token = NULL;
@@ -287,7 +279,6 @@ bool table_exists(char *name)
 		}
 	}
 	free(line);
-	fclose(meta);
 
 	return false;
 }

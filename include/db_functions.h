@@ -24,7 +24,8 @@
 #define MULTIPLIER 2
 
 typedef struct return_value return_value;
-struct return_value {
+struct return_value
+{
   char *msg;
   bool success;
 };
@@ -34,8 +35,8 @@ void execute_request(void *arg);
 void create_table(request_t *req, return_value *ret_val);
 void print_tables(return_value *ret_val);
 void print_schema(char *name, return_value *ret_val);
-void add_table(table_t *table);
-bool table_exists(char *name);
+void add_table(table_t *table, FILE *meta);
+bool table_exists(char *name, FILE *meta);
 
 bool is_valid_varchar(column_t *col);
 
