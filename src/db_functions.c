@@ -1,4 +1,5 @@
 #include "db_functions.h"
+#include "dynamic_string.h"
 
 static size_t realloc_str(char** str, size_t size)
 {
@@ -205,32 +206,56 @@ void print_schema(char *name, return_value *ret_val)
 
 void add_table(table_t *table)
 {
-	FILE *meta;
-	if (!(meta = fopen(META_FILE, "a")))
-	{
-		perror("fopen");
-		return;
-	}
-	fprintf(meta, "%s%s", table->name, COL_DELIM);
+	// Issue: When using bytelocking two tables of the same name could occur.
+	// Solution: Lock the whole file, look for table name, if it doesn't exist add it, unlock the file.
+	struct dynamicstr *buffer;
+	string_init(&buffer);
+	string_set(&buffer, "%s%s", table->name, COL_DELIM);
 
 	column_t *col = table->columns;
 	while (col->next) // loop while the column is not the last one
 	{
-		// write each column to the file with the appropriate format
+		// write each column to the buffer with the appropriate format
 		if (col->data_type == DT_INT) // INT name,
-			fprintf(meta, "%s%sINT%s", col->name, TYPE_DELIM, COL_DELIM);
+			string_set(&buffer, "%s%sINT%s", col->name, TYPE_DELIM, COL_DELIM);
 		else // VARCHAR(N) name,
-			fprintf(meta, "%s%sVARCHAR(%d)%s", col->name, TYPE_DELIM, col->char_size, COL_DELIM);
+			string_set(&buffer, "%s%sVARCHAR(%d)%s", col->name, TYPE_DELIM, col->char_size, COL_DELIM);
 
 		col = col->next;
 	}
 	// handle last one separately to instead use a newline instead of the column delimiter
 	if (col->data_type == DT_INT) // INT name,
-		fprintf(meta, "%s%sINT%s", col->name, TYPE_DELIM, ROW_DELIM);
+		string_set(&buffer, "%s%sINT%s", col->name, TYPE_DELIM, ROW_DELIM);
 	else // VARCHAR(N) name,
-		fprintf(meta, "%s%sVARCHAR(%d)%s", col->name, TYPE_DELIM, col->char_size, ROW_DELIM);
+		string_set(&buffer, "%s%sVARCHAR(%d)%s", col->name, TYPE_DELIM, col->char_size, ROW_DELIM);
 
-	fclose(meta);
+	int fileD = open(META_FILE, O_RDWR | O_NONBLOCK);
+	if (!(fileD > 0))
+	{
+		perror("open");
+		return;
+	}
+
+	struct flock lock;
+	memset(&lock, 0, sizeof(lock));
+
+	lock.l_type = F_WRLCK;
+	lock.l_whence = SEEK_END;
+	lock.l_start = 0;
+	lock.l_len = buffer->size;
+
+	while (fcntl(fileD, F_SETLK, &lock) < 0)
+		;
+
+	lseek(fileD, 0, SEEK_END);
+	// buffer->size -1 to not write the null character
+	write(fileD, buffer->buffer, buffer->size - 1);
+
+	lock.l_type = F_UNLCK;
+	fcntl(fileD, F_SETLK, &lock);
+
+	close(fileD);
+	string_free(buffer);
 }
 
 bool table_exists(char *name)
