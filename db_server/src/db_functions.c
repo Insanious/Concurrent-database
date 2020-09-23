@@ -306,5 +306,6 @@ int create_data_file(char *t_name)
 	strcat(final_name, t_name);
 	int data_fd = open(final_name, O_CREAT);
 	close(data_fd);
+	free(final_name);
 	return 0;
 }
