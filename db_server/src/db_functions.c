@@ -53,7 +53,7 @@ void execute_request(void *arg)
 			printf("RT_DROP\n"); /*ret_val = create_table(req);*/
 			break;
 		case RT_INSERT:
-			printf("RT_INSERT\n"); /*ret_val = create_table(req);*/
+			insert_data(cli_req->request, &ret_val);
 			break;
 		case RT_SELECT:
 			printf("RT_SELECT\n"); /*ret_val = create_table(req);*/
@@ -308,4 +308,91 @@ int create_data_file(char *t_name)
 	close(data_fd);
 	free(final_name);
 	return 0;
+}
+
+void insert_data(request_t *req, return_value *ret_val)
+{
+	table_t table;
+	table.name = req->table_name;
+	table.columns = req->columns;
+
+	int name_size = strlen(table.name);
+	char *data_file_name = (char *)malloc(strlen(DATA_FILE_PATH) + name_size + 1);
+
+	FILE *meta = fopen(META_FILE, "r");
+	FILE *data_file = fopen(data_file_name, "a");
+
+	int meta_descriptor = fileno(meta);
+	int data_file_descriptor = fileno(data_file);
+
+	struct flock meta_file_lock;
+	struct flock data_file_lock;
+
+	memset(&data_file_lock, 0, sizeof(data_file_lock));
+	memset(&meta_file_lock, 0, sizeof(meta_file_lock));
+
+	data_file_lock.l_type = F_WRLCK;
+	meta_file_lock.l_type = F_WRLCK;
+
+	fcntl(meta_descriptor, F_SETLKW, &meta_file_lock);
+	fcntl(data_file_descriptor, F_SETLKW, &data_file_lock);
+
+	// Get information from table, how many bytes is each column?
+	// Make sure that excess space is filled with null characters
+	// Check how INSERT fills up the request_t structure
+	// Information about table can be a struct
+
+  // getline into buffer, remove the table name and put it into populate column
+
+	free(data_file_name);
+	fclose(meta);
+	fclose(data_file);
+}
+
+int populate_column(column_t *current, char *table_row)
+{
+  char column_name[50];
+  char column_type[50];
+  column_name[0] = '\0';
+  column_type[0] = '\0';
+
+  sscanf(table_row, "%s%*[ ]%[^,]", column_name, column_type);
+  printf("Column: %s,%s\n", column_name, column_type);
+  printf("Length: %ld, %ld\n", strlen(column_name), strlen(column_type));
+  current->name = (char *)malloc(strlen(column_name) + 1);
+  strcpy(current->name, column_name);
+
+  if (column_type[0] == 'I')
+  {
+    current->data_type = DT_INT;
+  }
+  else
+  {
+    current->data_type = DT_VARCHAR;
+    int varchar_size = 0;
+    sscanf(column_type, "%*[^0123456789]%d", &current->char_size);
+  }
+
+  table_row = strtok(NULL, ",");
+  if (table_row != NULL)
+  {
+    column_t *next = (column_t *)malloc(sizeof(column_t));
+    next->next = NULL;
+    populate_column(next, table_row);
+    current->next = next;
+  }
+  else
+  {
+    return 0;
+  }
+}
+
+int unpopulate_column(column_t *current) {
+  free(current->name);
+  current->name = NULL;
+  if(current->next != NULL)
+    unpopulate_column(current->next);
+  free(current);
+  current = NULL;
+  return 0;
 }

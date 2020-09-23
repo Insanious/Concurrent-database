@@ -39,7 +39,12 @@ void print_schema(char *name, return_value *ret_val);
 void add_table(table_t *table, FILE *meta);
 bool table_exists(char *name, FILE *meta);
 int create_data_file(char *name);
+void insert_data(request_t *req, return_value *ret_val);
 
 bool is_valid_varchar(column_t *col);
+
+
+int populate_column(column_t *current, char *table_row);
+int unpopulate_column(column_t *current);
 
 #endif
