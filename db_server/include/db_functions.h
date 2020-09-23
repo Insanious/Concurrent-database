@@ -17,6 +17,7 @@
 #include "table_t.h"
 
 #define META_FILE "../database/meta.txt"
+#define DATA_FILE_PATH "../database/"
 #define COL_DELIM ","
 #define TYPE_DELIM " "
 #define ROW_DELIM "\n"
@@ -37,6 +38,7 @@ void print_tables(return_value *ret_val);
 void print_schema(char *name, return_value *ret_val);
 void add_table(table_t *table, FILE *meta);
 bool table_exists(char *name, FILE *meta);
+int create_data_file(char *name);
 
 bool is_valid_varchar(column_t *col);
 

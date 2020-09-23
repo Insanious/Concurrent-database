@@ -121,7 +121,13 @@ void create_table(request_t *req, return_value *ret_val)
 	}
 
 	add_table(&table, meta);
-	create_data_file(&table.name);
+	if (create_data_file(table.name) < 0)
+	{
+		ret_val->msg = create_format_buffer("Could not create data file");
+		ret_val->success = false;
+		fclose(meta);
+		return;
+	}
 
 	fclose(meta);
 
@@ -290,8 +296,15 @@ bool is_valid_varchar(column_t *col)
 	return col->char_size >= 0;
 }
 
-void create_data_file(char *t_name)
+int create_data_file(char *t_name)
 {
-	int data_fd = open(t_name, O_CREAT);
+	int name_size = strlen(t_name);
+	char *final_name = (char *)malloc(strlen(DATA_FILE_PATH) + name_size + 1);
+	if (final_name == NULL)
+		return -1;
+	strcpy(final_name, DATA_FILE_PATH);
+	strcat(final_name, t_name);
+	int data_fd = open(final_name, O_CREAT);
 	close(data_fd);
+	return 0;
 }
