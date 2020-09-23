@@ -16,7 +16,7 @@
 #include "request.h"
 #include "table_t.h"
 
-#define META_FILE "meta.txt"
+#define META_FILE "../database/meta.txt"
 #define COL_DELIM ","
 #define TYPE_DELIM " "
 #define ROW_DELIM "\n"
