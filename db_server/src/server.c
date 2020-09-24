@@ -1,5 +1,10 @@
 #include "server.h"
 
+static bool client_newline(char **msg)
+{
+	return (strlen(*msg) == 2 && (int)(*msg)[0] == 13 && (int)(*msg)[1] == 10);
+}
+
 void handle_connection(void *arg)
 {
 	connection_args *args = ((connection_args *)arg);
@@ -9,6 +14,7 @@ void handle_connection(void *arg)
 	client_request *cli_req = (client_request *)malloc(sizeof(client_request));
 	cli_req->request = req;
 	cli_req->client_socket = args->socket;
+	cli_req->server = args->server;
 	if (req == NULL)
 	{
 		cli_req->error = (char *)malloc((strlen(args->msg) + 1) * sizeof(char));
@@ -78,8 +84,6 @@ server_t *server_create(size_t queue_size, size_t nr_of_threads)
 	memset(server->address.sin_zero, '\0', sizeof(server->address.sin_zero));			  // set all bits of the padding field to 0
 	bind(server->socket, (struct sockaddr *)&(server->address), sizeof(server->address)); // bind the address struct to the socket
 
-	server->quit = false;
-
 	return server;
 }
 
@@ -96,34 +100,64 @@ void server_listen(server_t *server)
 	char client_msg[1024];
 	char *msg = NULL;
 
+	size_t max_socket = server->socket;
+	fd_set ready_sockets;
+	FD_ZERO(&(server->current_sockets));
+	FD_SET(server->socket, &(server->current_sockets)); // add server sockets to fd set
+
 	while (true)
 	{
-		server->address_size = sizeof(server->storage);
-		if ((new_socket = accept(server->socket, (struct sockaddr *)&server->storage, &server->address_size)) == -1) // wait until new connection
+		ready_sockets = server->current_sockets; // copy current sockets to new fd_set since select is destructive
+
+		if (select(FD_SETSIZE, &ready_sockets, NULL, NULL, NULL) < 0) // check socket descriptors
+			perror("select");
+
+		for (size_t i = 0; i <= max_socket; i++)
 		{
-			perror("accept");
-			continue;
+			if (!FD_ISSET(i, &ready_sockets)) // nothing to read on socket descriptor
+				continue;
+
+			new_socket = i;
+			if (new_socket == server->socket) // new connection
+			{
+				server->address_size = sizeof(server->storage);
+				if ((new_socket = accept(server->socket, (struct sockaddr *)&server->storage, &server->address_size)) == -1)
+				{
+					perror("accept");
+					continue;
+				}
+				// add new connection to socket descriptors
+				FD_SET(new_socket, &(server->current_sockets));
+				max_socket = new_socket;
+				continue;
+			}
+
+			memset(&client_msg, 0, 1024);						// clear memory
+			if (recv(new_socket, client_msg, 1024, 0) == -1)	// receive data from socket
+			{
+				perror("recv");
+				continue;
+			}
+
+			if (!(length = strlen(client_msg))) // nothing was received
+				continue;
+			msg = (char *)malloc((length + 1) * sizeof(char));	// malloc new msg so it can persist with the new thread
+			strcpy(msg, client_msg);							// copy client message to a new string
+
+			if (client_newline(&msg)) // the client only sent newline and no request
+			{
+				free(msg);
+				continue;
+			}
+
+			// malloc new args so it can persist through the new thread
+			connection_args *args = malloc(sizeof(connection_args));
+			args->server = server;
+			args->socket = new_socket;
+			args->msg = msg;
+
+			thread_pool_add_work(server->pool, handle_connection, args);
 		}
-
-		memset(&client_msg, 0, 1024); // clear
-
-		if (recv(new_socket, client_msg, 1024, 0) == -1)
-		{
-			perror("recv");
-			continue;
-		}
-
-		if (!(length = strlen(client_msg)))
-			continue;
-		msg = (char *)malloc((length + 1) * sizeof(char)); // malloc new msg so it can persist with the new thread
-		strcpy(msg, client_msg);						   // copy client message to a new string
-
-		connection_args *args = malloc(sizeof(connection_args)); // malloc new args so it can persist with the new thread
-		args->server = server;
-		args->socket = new_socket;
-		args->msg = msg;
-
-		thread_pool_add_work(server->pool, handle_connection, args);
 	}
 }
 

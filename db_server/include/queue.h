@@ -13,6 +13,7 @@ struct client_request
 	request_t *request;
 	size_t client_socket;
 	char *error;
+	void* server;
 };
 
 typedef struct queue_t queue_t;

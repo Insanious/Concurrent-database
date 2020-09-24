@@ -15,6 +15,7 @@
 #include "queue.h"
 #include "request.h"
 #include "table_t.h"
+#include "server.h"
 
 #define META_FILE "../database/meta.txt"
 #define DATA_FILE_PATH "../database/"

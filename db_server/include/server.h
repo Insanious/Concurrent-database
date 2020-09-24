@@ -7,6 +7,7 @@
 #include <semaphore.h>
 #include <pthread.h>
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <fcntl.h>
@@ -34,8 +35,7 @@ struct server
 	struct sockaddr_in address;
 	struct sockaddr_storage storage;
 	socklen_t address_size;
-
-	bool quit;
+	fd_set current_sockets;
 };
 
 
