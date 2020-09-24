@@ -5,7 +5,7 @@ Grade D:
 	DELETE TABLE
 	INSERT
 	SELECT
-	.quit
+	.quit - DONE
 
 	no zombie processes
 	command line options
