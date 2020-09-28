@@ -34,7 +34,12 @@ static char *create_format_buffer(const char *format, ...)
 void execute_request(void *arg)
 {
 	client_request *cli_req = ((client_request *)arg);
+	// cli_req->server = ((server_t *)cli_req->server);
+	server_t *server = ((server_t *)cli_req->server);
 	return_value ret_val;
+	ret_val.success = false;
+	ret_val.msg = NULL;
+
 	if (cli_req->error == NULL)
 	{
 
@@ -59,7 +64,12 @@ void execute_request(void *arg)
 			printf("RT_SELECT\n"); /*ret_val = create_table(req);*/
 			break;
 		case RT_QUIT:
-			printf("RT_QUIT\n"); /*ret_val = create_table(req);*/
+			FD_CLR(cli_req->client_socket, &(server->current_sockets));	// clear socket descriptor from server
+			// shutdown + close to ensure that both the socket and the telnet connection is closed
+			if(shutdown(cli_req->client_socket, SHUT_RDWR) == -1)
+				perror("shutdown");
+			if(close(cli_req->client_socket) == -1)
+				perror("close");
 			break;
 		case RT_DELETE:
 			printf("RT_DELETE\n"); /*ret_val = create_table(req);*/
@@ -69,7 +79,7 @@ void execute_request(void *arg)
 			break;
 		}
 		if (ret_val.msg && send(cli_req->client_socket, ret_val.msg, strlen(ret_val.msg), 0) < 0)
-			perror("send\n");
+			perror("send");
 	}
 	else
 	{
@@ -78,9 +88,7 @@ void execute_request(void *arg)
 
 		free(cli_req->error);
 	}
-	if (close(cli_req->client_socket) == -1)
-		perror("close");
-	// cleanup
+
 	destroy_request(cli_req->request);
 	free(cli_req);
 }
@@ -100,8 +108,7 @@ void create_table(request_t *req, return_value *ret_val)
 	fcntl(metaDescriptor, F_SETLKW, &lock);
 	if (table_exists(table.name, meta))
 	{
-		ret_val->msg = create_format_buffer("error: table '%s' already exists", table.name);
-		ret_val->success = false;
+		ret_val->msg = create_format_buffer("error: table '%s' already exists\n", table.name);
 		fclose(meta);
 		return;
 	}
@@ -111,8 +118,7 @@ void create_table(request_t *req, return_value *ret_val)
 	{
 		if (col->data_type == DT_VARCHAR && !is_valid_varchar(col))
 		{
-			ret_val->msg = create_format_buffer("error: VARCHAR contained faulty value '%d'", col->char_size);
-			ret_val->success = false;
+			ret_val->msg = create_format_buffer("error: VARCHAR contained faulty value '%d'\n", col->char_size);
 			fclose(meta);
 			return;
 		}
@@ -123,27 +129,25 @@ void create_table(request_t *req, return_value *ret_val)
 	add_table(&table, meta);
 	if (create_data_file(table.name) < 0)
 	{
-		ret_val->msg = create_format_buffer("Could not create data file");
-		ret_val->success = false;
+		ret_val->msg = create_format_buffer("error: could not create data file\n");
 		fclose(meta);
 		return;
 	}
 
 	fclose(meta);
 
-	ret_val->msg = create_format_buffer("successfully created table '%s'", table.name);
+	ret_val->msg = create_format_buffer("successfully created table '%s'\n", table.name);
 	ret_val->success = true;
 }
 
 void print_tables(return_value *ret_val)
 {
 	char *buffer;
-	ret_val->success = false;
 
 	FILE *meta = fopen(META_FILE, "r");
 	if (!meta) // if the database is empty, the table can't exist in the database
 	{
-		ret_val->msg = create_format_buffer("error: %s does not exist", META_FILE);
+		ret_val->msg = create_format_buffer("error: %s does not exist\n", META_FILE);
 		return;
 	}
 
@@ -164,10 +168,6 @@ void print_tables(return_value *ret_val)
 		strcat(buffer, "\n");
 	}
 	free(line);
-
-	// remove last newline
-	buffer[strlen(buffer) - 1] = '\0';
-
 	fclose(meta);
 
 	ret_val->msg = buffer;
@@ -176,12 +176,10 @@ void print_tables(return_value *ret_val)
 
 void print_schema(char *name, return_value *ret_val)
 {
-	ret_val->success = false;
-
 	FILE *meta = fopen(META_FILE, "r");
 	if (!meta) // if the database is empty, the table can't exist in the database
 	{
-		ret_val->msg = create_format_buffer("error: %s does not exist", META_FILE);
+		ret_val->msg = create_format_buffer("error: %s does not exist\n", META_FILE);
 		return;
 	}
 
@@ -217,6 +215,9 @@ void print_schema(char *name, return_value *ret_val)
 			strcat(buffer, "\n");
 		}
 
+		// remove last newline
+		buffer[strlen(buffer) - 1] = '\0';
+
 		ret_val->msg = buffer;
 		ret_val->success = true;
 		fclose(meta);
@@ -225,7 +226,7 @@ void print_schema(char *name, return_value *ret_val)
 
 	fclose(meta);
 
-	ret_val->msg = create_format_buffer("error: table '%s' does not exists", name);
+	ret_val->msg = create_format_buffer("error: table '%s' does not exists\n", name);
 }
 
 void add_table(table_t *table, FILE *meta)
@@ -343,7 +344,7 @@ void insert_data(request_t *req, return_value *ret_val)
 	// Check how INSERT fills up the request_t structure
 	// Information about table can be a struct
 
-  // getline into buffer, remove the table name and put it into populate column
+	// getline into buffer, remove the table name and put it into populate column
 
 	free(data_file_name);
 	fclose(meta);
@@ -370,7 +371,6 @@ int populate_column(column_t *current, char *table_row)
   else
   {
     current->data_type = DT_VARCHAR;
-    int varchar_size = 0;
     sscanf(column_type, "%*[^0123456789]%d", &current->char_size);
   }
 
@@ -382,13 +382,12 @@ int populate_column(column_t *current, char *table_row)
     populate_column(next, table_row);
     current->next = next;
   }
-  else
-  {
+
     return 0;
-  }
 }
 
-int unpopulate_column(column_t *current) {
+int unpopulate_column(column_t *current)
+{
   free(current->name);
   current->name = NULL;
   if(current->next != NULL)
