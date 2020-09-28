@@ -299,12 +299,13 @@ bool is_valid_varchar(column_t *col)
 int create_data_file(char *t_name)
 {
 	int name_size = strlen(t_name);
-	char *final_name = (char *)malloc(strlen(DATA_FILE_PATH) + name_size + 1);
+	char *final_name = (char *)malloc(strlen(DATA_FILE_PATH) + name_size + strlen(DATA_FILE_ENDING)+ 1);
 	if (final_name == NULL)
 		return -1;
 	strcpy(final_name, DATA_FILE_PATH);
 	strcat(final_name, t_name);
-	int data_fd = open(final_name, O_CREAT);
+	strcat(final_name, DATA_FILE_ENDING);
+	int data_fd = open(final_name, O_CREAT, 0644);
 	close(data_fd);
 	free(final_name);
 	return 0;
