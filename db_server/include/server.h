@@ -1,60 +1,66 @@
 #ifndef SERVER_H
 #define SERVER_H
 
-#include <string.h>
+#include <arpa/inet.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <inttypes.h>
+#include <netinet/in.h>
+#include <pthread.h>
+#include <semaphore.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <semaphore.h>
-#include <pthread.h>
-#include <sys/socket.h>
+#include <string.h>
 #include <sys/select.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <fcntl.h>
+#include <sys/socket.h>
 #include <unistd.h>
-#include <errno.h>
 
+#include "db_functions.h"
+#include "private_variables.h"
 #include "queue.h"
 #include "request.h"
 #include "thread_pool.h"
-#include "db_functions.h"
-#include "private_variables.h"
+
+#define HELP "help me i suck at dis"
+
+#define THREAD 0
+#define PREFORK 1
+#define FORK 2
+#define MUX 3
 
 typedef struct server server_t;
-struct server
-{
-	queue_t* request_queue;
-	size_t queue_size;
+struct server {
+    queue_t *request_queue;
+    size_t queue_size;
+    char *logfile;
 
-	thread_pool_t* pool;
-	pthread_mutex_t enqueue_lock;
-	sem_t empty_sem;
-	sem_t full_sem;
+    thread_pool_t *pool;
+    pthread_mutex_t enqueue_lock;
+    sem_t empty_sem;
+    sem_t full_sem;
 
-	size_t socket;
-	struct sockaddr_in address;
-	struct sockaddr_storage storage;
-	socklen_t address_size;
-	fd_set current_sockets;
+    size_t socket;
+    size_t port;
+    struct sockaddr_in address;
+    struct sockaddr_storage storage;
+    socklen_t address_size;
+    fd_set current_sockets;
 };
-
 
 typedef struct connection_args connection_args;
-struct connection_args
-{
-	server_t* server;
-	size_t socket;
-	char* msg;
+struct connection_args {
+    server_t *server;
+    size_t socket;
+    char *msg;
 };
 
-
-server_t* server_create(size_t queue_size, size_t nr_of_threads);
-void server_listen(server_t* server);
-void server_destroy(server_t* server);
-void server_init(server_t* server);
+server_t *server_create(bool daemon, size_t port, size_t request_handling,
+                        char *logfile);
+void server_listen(server_t *server);
+void server_destroy(server_t *server);
+void server_init(server_t *server);
 
 // void handle_connection(void* arg);
-void assign_work(void* arg);
-
+void assign_work(void *arg);
 
 #endif
