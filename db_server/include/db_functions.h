@@ -19,6 +19,7 @@
 
 #define META_FILE "../database/meta.txt"
 #define DATA_FILE_PATH "../database/"
+#define DATA_FILE_ENDING ".txt"
 #define COL_DELIM ","
 #define TYPE_DELIM " "
 #define ROW_DELIM "\n"
