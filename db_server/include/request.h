@@ -19,33 +19,31 @@ typedef struct request_t request_t;
 typedef struct column_t column_t;
 
 struct column_t {
-	/* name of the column */
-	char* name;
-	/* indicates the columns data type */
-	char data_type;
-	/* indicates if column is the PRIMARY KEY column */
-	char is_primary_key;
-	/* INT value for INSERT or UPDATE statement */
-	int int_val;
-	/* string length for VARCHAR definition */
-	int char_size;
-	/* VARCHAR value for INSERT or UPDATE statement */
-	char* char_val;
-	/* pointer to next column entry */
-	column_t* next;
+    /* name of the column */
+    char* name;
+    /* indicates the columns data type */
+    char data_type;
+    /* indicates if column is the PRIMARY KEY column */
+    char is_primary_key;
+    /* INT value for INSERT or UPDATE statement */
+    int int_val;
+    /* string length for VARCHAR definition */
+    int char_size;
+    /* VARCHAR value for INSERT or UPDATE statement */
+    char* char_val;
+    /* pointer to next column entry */
+    column_t* next;
 };
 
 struct request_t {
-	/* type of the request */
-	char request_type;
-	/* name of the table this request is for */
-	char* table_name;
-	/* columns for which this request is for */
-	column_t* columns;
-	/* column which to use in the WHERE statement */
-	column_t* where;
-
-	size_t from;
+    /* type of the request */
+    char request_type;
+    /* name of the table this request is for */
+    char* table_name;
+    /* columns for which this request is for */
+    column_t* columns;
+    /* column which to use in the WHERE statement */
+    column_t* where;
 };
 
 /*
@@ -54,14 +52,17 @@ struct request_t {
  * parses database server command into request_t struct
  *
  * request_string: string containing one database command
+ * parse_error: pointer to character pointer for error reporting
  *
  * returns: request_t filled with the information contained in the
  *          parsed command string
  *
  * errors: returns NULL in case of error
- *         request_string is replaced with error message
+ *         allocates memory for error message and makes parse_error pointer
+ *         point to it -- NOTE: this message buffer needs to be freed by the
+ *         caller
  * */
-request_t* parse_request(char* request_string);
+request_t* parse_request(char* request_string, char** parse_error);
 /*
  * Function: print_request
  * -----------------------
