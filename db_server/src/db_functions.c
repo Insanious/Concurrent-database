@@ -96,10 +96,12 @@ void execute_request(void *arg)
 void create_table(request_t *req, return_value *ret_val)
 {
 	table_t table;
+	FILE *meta = NULL;
 	table.name = req->table_name;
 	table.columns = req->columns;
 
-	FILE *meta = fopen(META_FILE, "r");
+	// create file if it doesn't exists, and open it for reading
+	meta = (access(META_FILE, F_OK) == -1) ? fopen(META_FILE, "w+") : fopen(META_FILE, "r");
 	int metaDescriptor = fileno(meta);
 	struct flock lock;
 	memset(&lock, 0, sizeof(lock));
