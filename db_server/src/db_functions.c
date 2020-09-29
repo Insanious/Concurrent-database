@@ -80,15 +80,12 @@ void execute_request(void *arg)
 		}
 		if (ret_val.msg && send(cli_req->client_socket, ret_val.msg, strlen(ret_val.msg), 0) < 0)
 			perror("send");
-	}
-	else
-	{
-		if (send(cli_req->client_socket, cli_req->error, strlen(cli_req->error), 0) < 0)
-			perror("send\n");
+	if (send(cli_req->client_socket, cli_req->error, strlen(cli_req->error),
+	         0) < 0)
+	    perror("send\n");
+    }
 
-		free(cli_req->error);
-	}
-
+    free(cli_req->error);
 	destroy_request(cli_req->request);
 	free(cli_req);
 }
