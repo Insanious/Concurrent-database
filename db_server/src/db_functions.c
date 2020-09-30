@@ -49,7 +49,7 @@ void execute_request(void *arg) {
             print_schema(cli_req->request->table_name, &ret_val);
             break;
         case RT_DROP:
-            printf("RT_DROP\n");
+            drop_table(cli_req->request->table_name, &ret_val);
             break;
         case RT_INSERT:
             insert_data(cli_req->request, &ret_val);
@@ -298,8 +298,7 @@ void select_table(char *name, client_request *cli_req) {
     }
 
     char *final_name = NULL;
-    if (create_full_data_path_from_name(name, &final_name) < 0)
-    {
+    if (create_full_data_path_from_name(name, &final_name) < 0) {
         perror("malloc");
 
         msg = create_format_buffer("error: server ran out of memory\n");
@@ -378,6 +377,51 @@ void select_table(char *name, client_request *cli_req) {
     free(msg);
 
     fclose(data_file);
+}
+
+void drop_table(char *name, return_value *ret_val) {
+    FILE *meta = fopen(META_FILE, "r+");
+    if (!meta) // if the database is empty, the table can't exist in the database
+    {
+        ret_val->msg = create_format_buffer("error: %s does not exist\n", META_FILE);
+        return;
+    }
+
+    int meta_descriptor = fileno(meta);
+    struct flock lock;
+    memset(&lock, 0, sizeof(lock));
+    lock.l_type = F_WRLCK;
+    fcntl(meta_descriptor, F_SETLKW, &lock);
+
+    char temp_name[] = "temp.txt";
+    FILE *temp = fopen(temp_name, "w"); // create and open a temporary file in write mode
+    char *line = NULL;
+    size_t nr_of_chars = 0;
+    size_t length = strlen(name);
+    size_t i;
+    // copy all the contents to the temporary file except the specific line
+    while (getline(&line, &nr_of_chars, meta) != -1) {
+        for (i = 0; i < length && line[i] == name[i]; i++)
+            ;
+        // check if the loop didn't exit early and that the next character on the line is COL_DELIM
+        if (i == length && line[i] == COL_DELIM[0]) {
+            ret_val->success = true;
+            ret_val->msg = create_format_buffer("successfully dropped table %s\n", name);
+            continue;
+        }
+
+        fprintf(temp, "%s", line); // copy line to temp file
+    }
+    free(line);
+    fclose(meta);
+    fclose(temp);
+
+    if (!ret_val->success)
+        ret_val->msg = create_format_buffer("error: %s does not exist\n", name);
+    else {
+        remove(META_FILE);            // remove the original file
+        rename(temp_name, META_FILE); // rename the temporary file to original name
+    }
 }
 
 bool table_exists(char *name, FILE *meta) {
@@ -515,8 +559,7 @@ void create_template_column(char *name, FILE *meta, column_t **first, int *chars
     free(line); // free the getline allocated line
 }
 
-int create_full_data_path_from_name(char *name, char **full_path)
-{
+int create_full_data_path_from_name(char *name, char **full_path) {
     *full_path = (char *)malloc(strlen(DATA_FILE_PATH) + strlen(name) + strlen(DATA_FILE_ENDING) + 1);
     if (*full_path == NULL)
         return -1;

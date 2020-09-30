@@ -44,6 +44,7 @@ void print_tables(return_value *ret_val);
 void print_schema(char *name, return_value *ret_val);
 void add_table(table_t *table, FILE *meta);
 void select_table(char *name, client_request* cli_req);
+void drop_table(char *name, return_value *ret_val);
 bool table_exists(char *name, FILE *meta);
 int create_data_file(char *name);
 void insert_data(request_t *req, return_value *ret_val);
