@@ -282,59 +282,12 @@ void select_table(char *name, client_request *cli_req) {
 
     fcntl(meta_descriptor, F_SETLKW, &lock);
 
-    char *token = NULL;
-    char *line = NULL;
-    size_t nr_of_chars = 0;
-    int chars_in_row = 1; // start at 1 to account for the newline that is after each row
-    column_t *first_column = NULL;
-    column_t *current = NULL;
-
-    while (getline(&line, &nr_of_chars, meta) != -1) {
-        token = strtok(line, COL_DELIM);
-        if (strcmp(token, name) != 0) {
-            free(line); // free the getline allocated line
-            line = NULL;
-            continue;
-        }
-
-        current = calloc(1, sizeof(column_t));
-        // found the table
-        while ((token = strtok(0, TYPE_DELIM))) {
-            // allocate memory for new column
-            if (first_column != NULL)
-                current = current->next; // iterate forward in the list
-            else
-                first_column = current;
-            // extract name
-            current->name = calloc(strlen(token) + 1, sizeof(char));
-            strcpy(current->name, token);
-
-            // extract type
-            // if the column is an INT, the size will be 10 bytes
-            // if the column is a VARCHAR, we need to extract th number of bytes
-            // this means that if the column->char_size is set, it is a VARCHAR,
-            // otherwise it's an INT
-            token = strtok(0, COL_DELIM);
-            if (strcmp(token, "INT") != 0) {
-                sscanf(token, "%*[^0123456789]%d", &current->char_size);
-                current->char_size += 2; // +2 to account for the ''
-                chars_in_row += current->char_size;
-            } else
-                chars_in_row += CHARS_PER_INT; // chars in an INT
-
-            current->next = calloc(1, sizeof(column_t));
-        }
-        // since we allocate new memeory at the end of the while loop, the last
-        // iteration will allocate memory unnecessarily, therefore we free it
-        free(current->next);
-        current->next = NULL;
-        break;
-    }
-    free(line); // free the getline allocated line
-    fclose(meta);
+    column_t *first = NULL;
+    int chars_in_row = 0;
+    create_template_column(name, meta, &first, &chars_in_row);
 
     // did not find the table
-    if (first_column == NULL) {
+    if (first == NULL) {
         msg = create_format_buffer("error: %s does not exist\n", name);
         if (send(cli_req->client_socket, msg, strlen(msg), 0) < 0)
             perror("send");
@@ -365,6 +318,7 @@ void select_table(char *name, client_request *cli_req) {
     int remaining_rows = chars_in_file / chars_in_row;
     int chars_in_column, count, k;
     char ch = '0';
+    column_t *current;
 
     // allocate buffer to send to client
     msg = calloc(CHARS_PER_SEND, sizeof(char));
@@ -374,7 +328,7 @@ void select_table(char *name, client_request *cli_req) {
         count = 0;
         while (true) // iterate for each row
         {
-            current = first_column;
+            current = first;
             while (current) // iterate for each column
             {
                 // how many chars to iterate over for the current column
@@ -391,7 +345,11 @@ void select_table(char *name, client_request *cli_req) {
                 // extract the rest of the value
                 for (int l = k; l < chars_in_column; l++)
                     msg[count++] = (char)fgetc(data_file);
-                        current = current->next;
+
+                if (current->next) // append '\t' only if it's not the last column
+                    msg[count++] = '\t';
+
+                current = current->next;
             }
             // extract the newline at the end of the column
             msg[count++] = (char)fgetc(data_file);
@@ -490,6 +448,68 @@ void insert_data(request_t *req, return_value *ret_val) {
     free(data_file_name);
     fclose(meta);
     fclose(data_file);
+}
+
+void create_template_column(char *name, FILE *meta, column_t **first, int *chars_in_row) {
+    char *token = NULL;
+    char *line = NULL;
+    size_t nr_of_chars = 0;
+
+    // search through the meta file for the table name
+    while (getline(&line, &nr_of_chars, meta) != -1) {
+        token = strtok(line, COL_DELIM);
+        if (strcmp(token, name) == 0)
+            break;
+
+        free(line); // free the getline allocated line
+        line = NULL;
+    }
+
+    if (!line) // the while loop continued until the end without finding the table
+        return;
+
+    // found the table
+    *chars_in_row = 1; // start at 1 to account for the newline that is after each row
+    column_t *current = calloc(1, sizeof(column_t));
+
+    while ((token = strtok(0, TYPE_DELIM))) {
+        // iterate forward in the list every time except the first time
+        // the first time, first is NULL and we have allocated current outside the loop
+        // so we set first to current and operate on current instead of current->next
+        if (*first != NULL) {
+            current = current->next;
+            // since we append a '\t' between each column, we need to increment chars_in_row
+            // but since we don't want an extra '\t' at the end, we only increment the chars_in_row
+            // (nr_of_columns - 1) times, instead of every iteration
+            (*chars_in_row)++;
+        } else
+            *first = current;
+        // extract column name
+        current->name = calloc(strlen(token) + 1, sizeof(char));
+        strcpy(current->name, token);
+
+        // extract column type
+        // if the column is an INT, the size will be 10 bytes
+        // if the column is a VARCHAR, we need to extract the number of bytes
+        // this means that if the column->char_size is set, it is a VARCHAR,
+        // otherwise it's an INT
+        token = strtok(0, COL_DELIM);
+        if (strcmp(token, "INT") != 0) {
+            sscanf(token, "%*[^0123456789]%d", &current->char_size); // extract number between paranthesis
+            current->char_size += 2;                                 // +2 to account for the ''
+            *chars_in_row += current->char_size;
+        } else
+            *chars_in_row += CHARS_PER_INT; // chars in an INT
+
+        current->next = calloc(1, sizeof(column_t)); // allocate new memory for the next column
+    }
+    // since we allocate new memeory at the end of the while loop, the last
+    // iteration will allocate memory unnecessarily, therefore we free it
+    free(current->next);
+    current->next = NULL;
+
+    free(line); // free the getline allocated line
+    fclose(meta);
 }
 
 int populate_column(column_t *current, char *table_row) {

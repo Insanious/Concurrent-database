@@ -27,7 +27,7 @@
 #define START_LENGTH 64
 #define MULTIPLIER 2
 #define CHARS_PER_INT 10
-#define CHARS_PER_SEND 300
+#define CHARS_PER_SEND 400
 #define PADDING '0'
 
 typedef struct return_value return_value;
@@ -47,6 +47,7 @@ void select_table(char *name, client_request* cli_req);
 bool table_exists(char *name, FILE *meta);
 int create_data_file(char *name);
 void insert_data(request_t *req, return_value *ret_val);
+void create_template_column(char* name, FILE *meta, column_t **first, int *chars_in_row);
 
 bool is_valid_varchar(column_t *col);
 
