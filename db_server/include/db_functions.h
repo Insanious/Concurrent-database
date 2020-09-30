@@ -47,7 +47,8 @@ void select_table(char *name, client_request* cli_req);
 bool table_exists(char *name, FILE *meta);
 int create_data_file(char *name);
 void insert_data(request_t *req, return_value *ret_val);
-void create_template_column(char* name, FILE *meta, column_t **first, int *chars_in_row);
+void create_template_column(char *name, FILE *meta, column_t **first, int *chars_in_row);
+int create_full_data_path_from_name(char *name, char **full_path);
 
 bool is_valid_varchar(column_t *col);
 

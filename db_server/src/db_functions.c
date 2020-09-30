@@ -285,6 +285,7 @@ void select_table(char *name, client_request *cli_req) {
     column_t *first = NULL;
     int chars_in_row = 0;
     create_template_column(name, meta, &first, &chars_in_row);
+    fclose(meta);
 
     // did not find the table
     if (first == NULL) {
@@ -296,11 +297,18 @@ void select_table(char *name, client_request *cli_req) {
         return;
     }
 
-    // create the file path from the file name, path, and ending
-    char *final_name = calloc(strlen(DATA_FILE_PATH) + strlen(name) + strlen(DATA_FILE_ENDING) + 1, sizeof(char));
-    strcpy(final_name, DATA_FILE_PATH);
-    strcat(final_name, name);
-    strcat(final_name, DATA_FILE_ENDING);
+    char *final_name = NULL;
+    if (create_full_data_path_from_name(name, &final_name) < 0)
+    {
+        perror("malloc");
+
+        msg = create_format_buffer("error: server ran out of memory\n");
+        if (send(cli_req->client_socket, msg, strlen(msg), 0) < 0)
+            perror("send");
+
+        free(msg);
+        return;
+    }
 
     FILE *data_file = fopen(final_name, "r");
     size_t data_descriptor = fileno(data_file);
@@ -396,14 +404,10 @@ bool table_exists(char *name, FILE *meta) {
 bool is_valid_varchar(column_t *col) { return col->char_size >= 0; }
 
 int create_data_file(char *t_name) {
-    int name_size = strlen(t_name);
-    char *final_name = (char *)malloc(strlen(DATA_FILE_PATH) + name_size +
-                                      strlen(DATA_FILE_ENDING) + 1);
-    if (final_name == NULL)
+    char *final_name = NULL;
+    if (create_full_data_path_from_name(t_name, &final_name) < 0)
         return -1;
-    strcpy(final_name, DATA_FILE_PATH);
-    strcat(final_name, t_name);
-    strcat(final_name, DATA_FILE_ENDING);
+
     int data_fd = open(final_name, O_CREAT, 0644);
     close(data_fd);
     free(final_name);
@@ -509,7 +513,19 @@ void create_template_column(char *name, FILE *meta, column_t **first, int *chars
     current->next = NULL;
 
     free(line); // free the getline allocated line
-    fclose(meta);
+}
+
+int create_full_data_path_from_name(char *name, char **full_path)
+{
+    *full_path = (char *)malloc(strlen(DATA_FILE_PATH) + strlen(name) + strlen(DATA_FILE_ENDING) + 1);
+    if (*full_path == NULL)
+        return -1;
+
+    strcpy(*full_path, DATA_FILE_PATH);
+    strcat(*full_path, name);
+    strcat(*full_path, DATA_FILE_ENDING);
+
+    return 0;
 }
 
 int populate_column(column_t *current, char *table_row) {
