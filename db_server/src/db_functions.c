@@ -423,9 +423,10 @@ void drop_table(client_request *cli_req/*char *name*/, return_value *ret_val) {
     fclose(meta);
     fclose(temp);
 
-    if (!ret_val->success)
+    if (!ret_val->success) {
         ret_val->msg = create_format_buffer("error: %s does not exist\n", cli_req->request->table_name);
-    else {
+        remove(temp_name); // remove the temporary file since the request failed
+    } else {
         remove(META_FILE);            // remove the original file
         rename(temp_name, META_FILE); // rename the temporary file to original name
     }
