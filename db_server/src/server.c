@@ -61,8 +61,7 @@ server_t *server_create(bool daemon, size_t port, size_t request_handling, char 
     server->request_queue = new_queue(queue_size);
     server->queue_size = queue_size;
     server->logfile = logfile;
-    if (server->logfile)
-    {
+    if (server->logfile) {
         FILE *log = fopen(server->logfile, "w");
         fclose(log);
     }
@@ -173,8 +172,7 @@ void server_init(server_t *server) {
     thread_pool_add_work(server->pool, assign_work, server);
 }
 
-char *get_ip_from_socket_fd(int fd)
-{
+char *get_ip_from_socket_fd(int fd) {
     struct sockaddr_in addr;
     socklen_t addr_size = sizeof(struct sockaddr_in);
     memset(&addr, 0, addr_size);
