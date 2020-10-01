@@ -5,8 +5,10 @@ static size_t realloc_str(char **str, size_t size) {
     if (!*(str))
         return 0;
 
-    if (!(*str = (char *)realloc(*str, (size_t)(size * MULTIPLIER))))
+    if (!(*str = (char *)realloc(*str, (size_t)(size * MULTIPLIER)))) {
         perror("realloc");
+        return 0;
+    }
 
     return (size_t)(size * MULTIPLIER);
 }
@@ -36,58 +38,56 @@ void execute_request(void *arg) {
     ret_val.success = false;
     ret_val.msg = NULL;
 
-    if (cli_req->error == NULL) {
-
-        switch (cli_req->request->request_type) {
-        case RT_CREATE:
-            create_table(cli_req, &ret_val);
-            break;
-        case RT_TABLES:
-            print_tables(&ret_val);
-            break;
-        case RT_SCHEMA:
-            print_schema(cli_req->request->table_name, &ret_val);
-            break;
-        case RT_DROP:
-            drop_table(cli_req, /*cli_req->request->table_name, */ &ret_val);
-            break;
-        case RT_INSERT:
-            insert_data(cli_req->request, &ret_val);
-            break;
-        case RT_SELECT:
-            select_table(cli_req->request->table_name, cli_req);
-            break;
-        case RT_QUIT:
-            log_info(server, "Closed connection from %s\n", get_ip_from_socket_fd(cli_req->client_socket));
-
-            FD_CLR(cli_req->client_socket, &(server->current_sockets));
-
-            // shutdown + close to ensure that both the socket and the telnet
-            // connection is closed
-            if (shutdown(cli_req->client_socket, SHUT_RDWR) == -1)
-                perror("shutdown");
-            if (close(cli_req->client_socket) == -1)
-                perror("close");
-
-            break;
-        case RT_DELETE:
-            printf("RT_DELETE\n");
-            break;
-        case RT_UPDATE:
-            printf("RT_UPDATE\n");
-            break;
-        }
-
-        if (ret_val.msg && send(cli_req->client_socket, ret_val.msg, strlen(ret_val.msg), 0) < 0)
-            perror("send");
-
-        destroy_request(cli_req->request);
-    } else {
+    if (cli_req->error) {
         if (send(cli_req->client_socket, cli_req->error, strlen(cli_req->error), 0) < 0)
             perror("send\n");
         free(cli_req->error);
+        free(cli_req);
+        return;
     }
 
+    switch (cli_req->request->request_type) {
+    case RT_CREATE:
+        create_table(cli_req, &ret_val);
+        break;
+    case RT_TABLES:
+        print_tables(&ret_val);
+        break;
+    case RT_SCHEMA:
+        print_schema(cli_req->request->table_name, &ret_val);
+        break;
+    case RT_DROP:
+        drop_table(cli_req, &ret_val);
+        break;
+    case RT_INSERT:
+        insert_data(cli_req->request, &ret_val);
+        break;
+    case RT_SELECT:
+        select_table(cli_req->request->table_name, cli_req);
+        break;
+    case RT_QUIT:
+        log_info(server, "Closed connection from %s\n", get_ip_from_socket_fd(cli_req->client_socket));
+
+        FD_CLR(cli_req->client_socket, &(server->current_sockets));
+        // shutdown + close to ensure that both the socket and the telnet
+        // connection is closed
+        if (shutdown(cli_req->client_socket, SHUT_RDWR) == -1)
+            perror("shutdown");
+        if (close(cli_req->client_socket) == -1)
+            perror("close");
+        break;
+    case RT_DELETE:
+        printf("RT_DELETE\n");
+        break;
+    case RT_UPDATE:
+        printf("RT_UPDATE\n");
+        break;
+    }
+
+    if (ret_val.msg && send(cli_req->client_socket, ret_val.msg, strlen(ret_val.msg), 0) < 0)
+        perror("send");
+
+    destroy_request(cli_req->request);
     free(cli_req);
 }
 
@@ -124,7 +124,7 @@ void create_table(client_request *cli_req, return_value *ret_val) {
 
     add_table(&table, meta);
     if (create_data_file(table.name) < 0) {
-        ret_val->msg = create_format_buffer("error: could not create data file\n");
+        ret_val->msg = create_format_buffer("error: could not create data file for table '%s'\n", table.name);
         fclose(meta);
         return;
     }
@@ -144,7 +144,7 @@ void print_tables(return_value *ret_val) {
     FILE *meta = fopen(META_FILE, "r");
     if (!meta) // if the database is empty, the table can't exist in the database
     {
-        ret_val->msg = create_format_buffer("error: %s does not exist\n", META_FILE);
+        ret_val->msg = create_format_buffer("error: '%s' does not exist\n", META_FILE);
         return;
     }
 
@@ -174,7 +174,7 @@ void print_schema(char *name, return_value *ret_val) {
     FILE *meta = fopen(META_FILE, "r");
     if (!meta) // if the database is empty, the table can't exist in the database
     {
-        ret_val->msg = create_format_buffer("error: %s does not exist\n", META_FILE);
+        ret_val->msg = create_format_buffer("error: '%s' does not exist\n", META_FILE);
         return;
     }
 
@@ -271,7 +271,7 @@ void select_table(char *name, client_request *cli_req) {
     char *msg = NULL;
     if (!meta) // if the database is empty, the table can't exist in the database
     {
-        msg = create_format_buffer("error: %s does not exist\n", META_FILE);
+        msg = create_format_buffer("error: '%s' does not exist\n", META_FILE);
         if (send(cli_req->client_socket, msg, strlen(msg), 0) < 0)
             perror("send");
 
@@ -294,7 +294,7 @@ void select_table(char *name, client_request *cli_req) {
 
     // did not find the table
     if (first == NULL) {
-        msg = create_format_buffer("error: %s does not exist\n", name);
+        msg = create_format_buffer("error: '%s' does not exist\n", name);
         if (send(cli_req->client_socket, msg, strlen(msg), 0) < 0)
             perror("send");
 
@@ -424,7 +424,7 @@ void drop_table(client_request *cli_req /*char *name*/, return_value *ret_val) {
     fclose(temp);
 
     if (!ret_val->success) {
-        ret_val->msg = create_format_buffer("error: %s does not exist\n", cli_req->request->table_name);
+        ret_val->msg = create_format_buffer("error: '%s' does not exist\n", cli_req->request->table_name);
         remove(temp_name); // remove the temporary file since the request failed
     } else {
         remove(META_FILE);            // remove the original file
@@ -568,8 +568,7 @@ void create_template_column(char *name, FILE *meta, column_t **first, int *chars
 }
 
 int create_full_data_path_from_name(char *name, char **full_path) {
-    *full_path = (char *)malloc(strlen(DATA_FILE_PATH) + strlen(name) + strlen(DATA_FILE_ENDING) + 1);
-    if (*full_path == NULL)
+    if ((*full_path = (char *)malloc(strlen(DATA_FILE_PATH) + strlen(name) + strlen(DATA_FILE_ENDING) + 1)) == NULL)
         return -1;
 
     strcpy(*full_path, DATA_FILE_PATH);
