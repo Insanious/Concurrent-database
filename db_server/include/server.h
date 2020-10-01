@@ -60,7 +60,8 @@ void server_listen(server_t *server);
 void server_destroy(server_t *server);
 void server_init(server_t *server);
 
-// void handle_connection(void* arg);
+char *get_ip_from_socket_fd(int fd);
+
 void assign_work(void *arg);
 
 #endif

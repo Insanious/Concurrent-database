@@ -2,6 +2,7 @@
 #define DB_FUNCTIONS_H
 
 #define _POSIX_C_SOURCE 200809L
+#define _DEFAULT_SOURCE
 
 #include <fcntl.h>
 #include <stdarg.h>
@@ -12,6 +13,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <math.h>
+#include <syslog.h>
 
 #include "queue.h"
 #include "request.h"
@@ -39,17 +41,18 @@ struct return_value {
 
 void execute_request(void *arg);
 
-void create_table(request_t *req, return_value *ret_val);
+void create_table(client_request *cli_req, return_value *ret_val);
 void print_tables(return_value *ret_val);
 void print_schema(char *name, return_value *ret_val);
 void add_table(table_t *table, FILE *meta);
 void select_table(char *name, client_request* cli_req);
-void drop_table(char *name, return_value *ret_val);
+void drop_table(client_request *cli_req/*char *name*/, return_value *ret_val);
 bool table_exists(char *name, FILE *meta);
 int create_data_file(char *name);
 void insert_data(request_t *req, return_value *ret_val);
 void create_template_column(char *name, FILE *meta, column_t **first, int *chars_in_row);
 int create_full_data_path_from_name(char *name, char **full_path);
+void log_info(void *server, const char *format, ...);
 
 bool is_valid_varchar(column_t *col);
 
