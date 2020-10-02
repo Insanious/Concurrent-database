@@ -32,7 +32,7 @@ void handle_connection(void *arg) {
 void assign_work(void *arg) {
     server_t *server = (server_t *)arg;
     if (!server) {
-        perror("assign_work arg");
+        log_to_file(server->log_file, "Error: Couldn't cast void *arg to server_t in assign_work()");
         return;
     }
 
@@ -72,7 +72,7 @@ server_t *server_create(bool daemon, size_t port, size_t request_handling, char 
 
     server->socket = socket(PF_INET, SOCK_STREAM, 0);                                     // create socket
     if (setsockopt(server->socket, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0) // reuse port
-        perror("setsockopt");
+        log_to_file(log_file, "Error: Couldn't setsockopt() in server_create()");
     server->address.sin_family = AF_INET; // Address Family = Internet
     server->port = port;
     server->address.sin_port = htons(port);                                               // set port number with proper byte order
@@ -87,7 +87,7 @@ server_t *server_create(bool daemon, size_t port, size_t request_handling, char 
 
 void server_listen(server_t *server) {
     if (listen(server->socket, 30) != 0)
-        perror("error: listen failed\n");
+        log_to_file(server->log_file, "Error: Couldn't listen() on port %ld in server_listen()", server->port);
 
     printf("Listening on port %ld...\n", server->port);
     log_to_file(server->log_file, "Server listening on port %ld...\n", server->port);
@@ -106,7 +106,7 @@ void server_listen(server_t *server) {
         ready_sockets = server->current_sockets; // copy current sockets to new fd_set since select is destructive
 
         if (select(FD_SETSIZE, &ready_sockets, NULL, NULL, NULL) < 0) // check socket descriptors
-            perror("select");
+            log_to_file(server->log_file, "Error: Couldn't select() in server_listen()");
 
         for (size_t i = 0; i <= max_socket; i++) {
             if (!FD_ISSET(i, &ready_sockets)) // nothing to read on socket descriptor
@@ -117,7 +117,7 @@ void server_listen(server_t *server) {
             {
                 server->address_size = sizeof(server->storage);
                 if ((new_socket = accept(server->socket, (struct sockaddr *)&server->storage, &server->address_size)) == -1) {
-                    perror("accept");
+                    log_to_file(server->log_file, "Error: Couldn't accept() in server_listen()");
                     continue;
                 }
                 // add new connection to socket descriptors
@@ -131,7 +131,7 @@ void server_listen(server_t *server) {
             memset(&client_msg, 0, 1024);                    // clear memory
             if (recv(new_socket, client_msg, 1024, 0) == -1) // receive data from socket
             {
-                perror("recv");
+                log_to_file(server->log_file, "Error: Couldn't recv() in server_listen()");
                 continue;
             }
 

@@ -2,13 +2,8 @@
 #include "dynamic_string.h"
 
 static size_t realloc_str(char **str, size_t size) {
-    if (!*(str))
+    if (!*(str) || !(*str = (char *)realloc(*str, (size_t)(size * MULTIPLIER))))
         return 0;
-
-    if (!(*str = (char *)realloc(*str, (size_t)(size * MULTIPLIER)))) {
-        perror("realloc");
-        return 0;
-    }
 
     return (size_t)(size * MULTIPLIER);
 }
@@ -40,7 +35,7 @@ void execute_request(void *arg) {
 
     if (cli_req->error) {
         if (send(cli_req->client_socket, cli_req->error, strlen(cli_req->error), 0) < 0)
-            perror("send\n");
+            log_to_file(server->log_file, "Error: Couldn't send() to socket %ld in execute_request()\n", cli_req->client_socket);
         free(cli_req->error);
         free(cli_req);
         return;
@@ -72,9 +67,9 @@ void execute_request(void *arg) {
         // shutdown + close to ensure that both the socket and the telnet
         // connection is closed
         if (shutdown(cli_req->client_socket, SHUT_RDWR) == -1)
-            perror("shutdown");
+            log_to_file(server->log_file, "Error: Couldn't shutdown() socket %ld in execute_request()\n", cli_req->client_socket);
         if (close(cli_req->client_socket) == -1)
-            perror("close");
+            log_to_file(server->log_file, "Error: Couldn't close() socket %ld in execute_request()\n", cli_req->client_socket);
         break;
     case RT_DELETE:
         printf("RT_DELETE\n");
@@ -85,7 +80,7 @@ void execute_request(void *arg) {
     }
 
     if (ret_val.msg && send(cli_req->client_socket, ret_val.msg, strlen(ret_val.msg), 0) < 0)
-        perror("send");
+        log_to_file(server->log_file, "Error: Couldn't send() to socket %ld in execute_request()\n", cli_req->client_socket);
 
     destroy_request(cli_req->request);
     free(cli_req);
@@ -122,7 +117,8 @@ void create_table(client_request *cli_req, return_value *ret_val) {
         col = col->next;
     }
 
-    add_table(&table, meta);
+    server_t *server = ((server_t *)cli_req->server);
+    add_table(&table, meta, server->log_file);
     if (create_data_file(table.name) < 0) {
         ret_val->msg = create_format_buffer("error: could not create data file for table '%s'\n", table.name);
         fclose(meta);
@@ -131,7 +127,6 @@ void create_table(client_request *cli_req, return_value *ret_val) {
 
     fclose(meta);
 
-    server_t *server = ((server_t *)cli_req->server);
     log_to_file(server->log_file, "Connection %s created table '%s'\n", get_ip_from_socket_fd(cli_req->client_socket), table.name);
 
     ret_val->msg = create_format_buffer("successfully created table '%s'\n", table.name);
@@ -228,13 +223,13 @@ void print_schema(char *name, return_value *ret_val) {
     ret_val->msg = create_format_buffer("error: table '%s' does not exists\n", name);
 }
 
-void add_table(table_t *table, FILE *meta) {
+void add_table(table_t *table, FILE *meta, char* log_file) {
     // Issue: When using bytelocking two tables of the same name could occur.
     // Solution: Lock the whole file, look for table name, if it doesn't exist
     // add it, unlock the file.
 
     if (!(meta = freopen(NULL, "a", meta))) {
-        perror("fopen");
+        log_to_file(log_file, "Error: Couldn't freopen() in add_table()\n");
         return;
     }
 
@@ -267,13 +262,14 @@ void add_table(table_t *table, FILE *meta) {
 }
 
 void select_table(char *name, client_request *cli_req) {
+    server_t *server = ((server_t *)cli_req->server);
     FILE *meta = fopen(META_FILE, "r");
     char *msg = NULL;
     if (!meta) // if the database is empty, the table can't exist in the database
     {
         msg = create_format_buffer("error: '%s' does not exist\n", META_FILE);
         if (send(cli_req->client_socket, msg, strlen(msg), 0) < 0)
-            perror("send");
+            log_to_file(server->log_file, "Error: Couldn't send() to socket %ld in select_table()\n", cli_req->client_socket);
 
         free(msg);
         return;
@@ -296,7 +292,7 @@ void select_table(char *name, client_request *cli_req) {
     if (first == NULL) {
         msg = create_format_buffer("error: '%s' does not exist\n", name);
         if (send(cli_req->client_socket, msg, strlen(msg), 0) < 0)
-            perror("send");
+            log_to_file(server->log_file, "Error: Couldn't send() to socket %ld in select_table()\n", cli_req->client_socket);
 
         free(msg);
         return;
@@ -304,11 +300,11 @@ void select_table(char *name, client_request *cli_req) {
 
     char *final_name = NULL;
     if (create_full_data_path_from_name(name, &final_name) < 0) {
-        perror("malloc");
+        log_to_file(server->log_file, "Error: Couldn't create_full_data_path_from_name() in select_table()\n");
 
         msg = create_format_buffer("error: server ran out of memory\n");
         if (send(cli_req->client_socket, msg, strlen(msg), 0) < 0)
-            perror("send");
+            log_to_file(server->log_file, "Error: Couldn't send() to socket %ld in select_table()\n", cli_req->client_socket);
 
         free(msg);
         return;
@@ -374,7 +370,7 @@ void select_table(char *name, client_request *cli_req) {
         }
 
         if (send(cli_req->client_socket, msg, count, 0) < 0)
-            perror("send");
+            log_to_file(server->log_file, "Error: Couldn't send() to socket %ld in select_table()\n", cli_req->client_socket);
 
         // clear msg buffer
         memset(msg, 0, count);
@@ -593,7 +589,7 @@ void log_to_file(char *file_name, const char *format, ...) {
         fclose(log);
     } else {
         // check if it's an error message and then write to syslog
-        char error[] = "error:";
+        char error[] = "Error:";
         int len = strlen(error);
         int i = 0;
         for (; i < len && error[i] == format[i]; i++)
