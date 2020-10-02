@@ -49,7 +49,7 @@ void assign_work(void *arg) {
     }
 }
 
-server_t *server_create(bool daemon, size_t port, size_t request_handling, char *logfile) {
+server_t *server_create(bool daemon, size_t port, size_t request_handling, char *log_file) {
     size_t queue_size = 32;
     size_t nr_of_threads = 8;
 
@@ -60,9 +60,9 @@ server_t *server_create(bool daemon, size_t port, size_t request_handling, char 
     server->pool = thread_pool_create(nr_of_threads);
     server->request_queue = new_queue(queue_size);
     server->queue_size = queue_size;
-    server->logfile = logfile;
-    if (server->logfile) {
-        FILE *log = fopen(server->logfile, "w");
+    server->log_file = log_file;
+    if (server->log_file) {
+        FILE *log = fopen(server->log_file, "w");
         fclose(log);
     }
 
@@ -80,7 +80,7 @@ server_t *server_create(bool daemon, size_t port, size_t request_handling, char 
     memset(server->address.sin_zero, '\0', sizeof(server->address.sin_zero));             // set all bits of the padding field to 0
     bind(server->socket, (struct sockaddr *)&(server->address), sizeof(server->address)); // bind the address struct to the socket
 
-    log_info(server, "Server initialized with %ld threads", nr_of_threads);
+    log_to_file(server->log_file, "Server initialized with %ld threads", nr_of_threads);
 
     return server;
 }
@@ -90,7 +90,7 @@ void server_listen(server_t *server) {
         perror("error: listen failed\n");
 
     printf("Listening on port %ld...\n", server->port);
-    log_info(server, "Server listening on port %ld...\n", server->port);
+    log_to_file(server->log_file, "Server listening on port %ld...\n", server->port);
 
     size_t new_socket;
     size_t length = 0;
@@ -124,7 +124,7 @@ void server_listen(server_t *server) {
                 FD_SET(new_socket, &(server->current_sockets));
                 max_socket = new_socket;
 
-                log_info(server, "Accepted new connection from %s\n", get_ip_from_socket_fd(new_socket));
+                log_to_file(server->log_file,"Accepted new connection from %s\n", get_ip_from_socket_fd(new_socket));
                 continue;
             }
 

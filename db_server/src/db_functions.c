@@ -66,7 +66,7 @@ void execute_request(void *arg) {
         select_table(cli_req->request->table_name, cli_req);
         break;
     case RT_QUIT:
-        log_info(server, "Closed connection from %s\n", get_ip_from_socket_fd(cli_req->client_socket));
+        log_to_file(server->log_file, "Closed connection from %s\n", get_ip_from_socket_fd(cli_req->client_socket));
 
         FD_CLR(cli_req->client_socket, &(server->current_sockets));
         // shutdown + close to ensure that both the socket and the telnet
@@ -132,7 +132,7 @@ void create_table(client_request *cli_req, return_value *ret_val) {
     fclose(meta);
 
     server_t *server = ((server_t *)cli_req->server);
-    log_info(server, "Created table '%s'\n", table.name);
+    log_to_file(server->log_file, "Connection %s created table '%s'\n", get_ip_from_socket_fd(cli_req->client_socket), table.name);
 
     ret_val->msg = create_format_buffer("successfully created table '%s'\n", table.name);
     ret_val->success = true;
@@ -400,7 +400,7 @@ void drop_table(client_request *cli_req /*char *name*/, return_value *ret_val) {
 
     server_t *server = ((server_t *)cli_req->server);
     char temp_name[] = "temp.txt";
-    FILE *temp = fopen(temp_name, "w"); // create and open a temporary file in write mode
+    FILE *temp_file = fopen(temp_name, "w"); // create and open a temporary file in write mode
     char *line = NULL;
     size_t nr_of_chars = 0;
     size_t length = strlen(cli_req->request->table_name);
@@ -411,17 +411,17 @@ void drop_table(client_request *cli_req /*char *name*/, return_value *ret_val) {
             ;
         // check if the loop didn't exit early and that the next character on the line is COL_DELIM
         if (i == length && line[i] == COL_DELIM[0]) {
-            log_info(server, "Dropped table '%s'\n", get_ip_from_socket_fd(cli_req->client_socket), cli_req->request->table_name);
+            log_to_file(server->log_file, "Connection %s dropped table '%s'\n", get_ip_from_socket_fd(cli_req->client_socket), cli_req->request->table_name);
             ret_val->success = true;
             ret_val->msg = create_format_buffer("successfully dropped table '%s'\n", cli_req->request->table_name);
             continue;
         }
 
-        fprintf(temp, "%s", line); // copy line to temp file
+        fprintf(temp_file, "%s", line); // copy line to temp file
     }
     free(line);
     fclose(meta);
-    fclose(temp);
+    fclose(temp_file);
 
     if (!ret_val->success) {
         ret_val->msg = create_format_buffer("error: '%s' does not exist\n", cli_req->request->table_name);
@@ -578,24 +578,37 @@ int create_full_data_path_from_name(char *name, char **full_path) {
     return 0;
 }
 
-void log_info(void *server, const char *format, ...) {
-    if (!format || !server)
+void log_to_file(char *file_name, const char *format, ...) {
+    if (!format)
         return;
 
     va_list args;
 
-    server_t *serv = ((server_t *)server);
-    if (serv->logfile) {
-        FILE *log = fopen(serv->logfile, "a");
+    if (file_name) {
+        FILE *log = fopen(file_name, "a");
 
         va_start(args, format);
         vfprintf(log, format, args);
         va_end(args);
         fclose(log);
     } else {
-        openlog("db_server_info", 0, LOG_LOCAL0);
-        va_start(args, format);
-        vsyslog(LOG_INFO, format, args);
+        // check if it's an error message and then write to syslog
+        char error[] = "error:";
+        int len = strlen(error);
+        int i = 0;
+        for (; i < len && error[i] == format[i]; i++)
+            ;
+        // if the loop doesn't exit early => error message
+        if (i == len) {
+            openlog("db_server_error", 0, LOG_LOCAL1);
+            va_start(args, format);
+            vsyslog(LOG_ERR, format, args);
+        } else {
+            openlog("db_server_info", 0, LOG_LOCAL0);
+            va_start(args, format);
+            vsyslog(LOG_INFO, format, args);
+        }
+
         va_end(args);
         closelog();
     }
