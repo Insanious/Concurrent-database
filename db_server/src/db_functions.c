@@ -579,35 +579,32 @@ void log_to_file(char *file_name, const char *format, ...) {
         return;
 
     va_list args;
+    va_start(args, format);
 
     if (file_name) {
         FILE *log = fopen(file_name, "a");
 
-        va_start(args, format);
         vfprintf(log, format, args);
-        va_end(args);
         fclose(log);
     } else {
         // check if it's an error message and then write to syslog
         char error[] = "Error:";
         int len = strlen(error);
-        int i = 0;
-        for (; i < len && error[i] == format[i]; i++)
+        int i;
+        for (i = 0; i < len && error[i] == format[i]; i++)
             ;
         // if the loop doesn't exit early => error message
         if (i == len) {
             openlog("db_server_error", 0, LOG_LOCAL1);
-            va_start(args, format);
             vsyslog(LOG_ERR, format, args);
         } else {
             openlog("db_server_info", 0, LOG_LOCAL0);
-            va_start(args, format);
             vsyslog(LOG_INFO, format, args);
         }
 
-        va_end(args);
         closelog();
     }
+    va_end(args);
 }
 
 int populate_column(column_t *current, char *table_row) {
