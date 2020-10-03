@@ -8,6 +8,7 @@ void handle_connection(void *arg) {
     connection_args *args = ((connection_args *)arg);
 
     client_request *cli_req = (client_request *)malloc(sizeof(client_request));
+    cli_req->error = NULL;
     request_t *req = parse_request(args->msg, &cli_req->error);
 
     cli_req->request = req;
