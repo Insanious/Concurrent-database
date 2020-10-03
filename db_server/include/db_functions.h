@@ -2,7 +2,7 @@
 #define DB_FUNCTIONS_H
 
 #define _POSIX_C_SOURCE 200809L
-
+#define _GNU_SOURCE
 #include <fcntl.h>
 #include <stdarg.h>
 #include <stdbool.h>
