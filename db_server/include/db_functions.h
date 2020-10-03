@@ -3,6 +3,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 #define _GNU_SOURCE
+#include <errno.h>
 #include <fcntl.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -12,10 +13,11 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include "dynamic_string.h"
 #include "queue.h"
 #include "request.h"
-#include "table_t.h"
 #include "server.h"
+#include "table_t.h"
 
 #define META_FILE "../database/meta.txt"
 #define DATA_FILE_PATH "../database/"
@@ -27,10 +29,9 @@
 #define MULTIPLIER 2
 
 typedef struct return_value return_value;
-struct return_value
-{
-  char *msg;
-  bool success;
+struct return_value {
+    char *msg;
+    bool success;
 };
 
 void execute_request(void *arg);
@@ -45,7 +46,8 @@ void insert_data(request_t *req, return_value *ret_val);
 
 bool is_valid_varchar(column_t *col);
 
-
+int column_to_buffer(column_t *table_column, column_t *input_column,
+                     dynamicstr *output_buffer, char **ret_msg);
 int populate_column(column_t *current, char *table_row);
 int unpopulate_column(column_t *current);
 
