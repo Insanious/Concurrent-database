@@ -32,7 +32,7 @@ typedef struct server server_t;
 struct server {
     queue_t *request_queue;
     size_t queue_size;
-    char *logfile;
+    char *log_file;
 
     thread_pool_t *pool;
     pthread_mutex_t enqueue_lock;
@@ -54,13 +54,13 @@ struct connection_args {
     char *msg;
 };
 
-server_t *server_create(bool daemon, size_t port, size_t request_handling,
-                        char *logfile);
+server_t *server_create(bool daemon, size_t port, size_t request_handling,char *log_file);
 void server_listen(server_t *server);
 void server_destroy(server_t *server);
 void server_init(server_t *server);
 
-// void handle_connection(void* arg);
+char *get_ip_from_socket_fd(int fd);
+
 void assign_work(void *arg);
 
 #endif

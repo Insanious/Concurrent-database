@@ -25,14 +25,12 @@ int main(int argc, char *argv[]) {
                     printf("error: expected an integer port number\n");
                     exit(EXIT_FAILURE);
                 } else if (port > 0xFFFF || port < 1024) {
-                    printf("error: expected a valid port number in the range "
-                           "(1024-65535) but got %s\n",
-                           second_arg);
+                    printf("error: expected a valid port number in the range (1024-65535) but got %s\n", second_arg);
                     exit(EXIT_FAILURE);
                 }
-            } else if (strcmp(argv[i], "-l") == 0)
+            } else if (strcmp(argv[i], "-l") == 0) {
                 logfile = second_arg;
-            else if (strcmp(argv[i], "-s") == 0) {
+            } else if (strcmp(argv[i], "-s") == 0) {
                 if (strcmp(second_arg, "fork") == 0)
                     request_handling = FORK;
                 else if (strcmp(second_arg, "thread") == 0)
@@ -42,9 +40,7 @@ int main(int argc, char *argv[]) {
                 else if (strcmp(second_arg, "mux") == 0)
                     request_handling = MUX;
                 else {
-                    printf("error: expected a one of [fork, thread, prefork, "
-                           "mux] but got %s\n",
-                           second_arg);
+                    printf("error: expected a one of [fork, thread, prefork, mux] but got %s\n", second_arg);
                     exit(EXIT_FAILURE);
                 }
             }

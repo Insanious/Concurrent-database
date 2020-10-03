@@ -2,13 +2,13 @@ Grade D:
 	CREATE - DONE
 	.tables - DONE
 	.schema - DONE
-	DELETE TABLE
+	DELETE TABLE - DONE
 	INSERT
-	SELECT
+	SELECT - DONE
 	.quit - DONE
 
 	no zombie processes
-	command line options
+	command line options - DONE
 		-h = help
 		-p <port> = listen to <port>
 		-s [ fork | thread | prefork | mux ] = request handling method(one of for Grade D)
