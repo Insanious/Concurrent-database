@@ -78,7 +78,8 @@ void execute_request(void *arg) {
 	}
 	if (ret_val.msg && send(cli_req->client_socket, ret_val.msg,
 	                        strlen(ret_val.msg), 0) < 0)
-	    perror("send");
+	    perror("send\n");
+	destroy_request(cli_req->request);
     } else {
 	if (send(cli_req->client_socket, cli_req->error, strlen(cli_req->error),
 	         0) < 0)
@@ -86,7 +87,6 @@ void execute_request(void *arg) {
     }
 
     free(cli_req->error);
-    destroy_request(cli_req->request);
     free(cli_req);
 }
 
@@ -101,7 +101,7 @@ void create_table(request_t *req, return_value *ret_val) {
     memset(&lock, 0, sizeof(lock));
     lock.l_type = F_WRLCK;
 
-    fcntl(metaDescriptor, F_SETLKW, &lock);
+    fcntl(metaDescriptor, F_OFD_SETLKW, &lock);
     if (table_exists(table.name, meta)) {
 	ret_val->msg = create_format_buffer(
 	    "error: table '%s' already exists\n", table.name);
@@ -244,7 +244,7 @@ void add_table(table_t *table, FILE *meta) {
     memset(&lock, 0, sizeof(lock));
     lock.l_type = F_WRLCK;
 
-    fcntl(metaDescriptor, F_SETLKW, &lock);
+    fcntl(metaDescriptor, F_OFD_SETLKW, &lock);
 
     fprintf(meta, "%s%s", table->name, COL_DELIM);
 
@@ -338,8 +338,8 @@ void insert_data(request_t *req, return_value *ret_val) {
     data_file_lock.l_type = F_WRLCK;
     meta_file_lock.l_type = F_WRLCK;
 
-    fcntl(meta_descriptor, F_SETLKW, &meta_file_lock);
-    fcntl(data_file_descriptor, F_SETLKW, &data_file_lock);
+    fcntl(meta_descriptor, F_OFD_SETLKW, &meta_file_lock);
+    fcntl(data_file_descriptor, F_OFD_SETLKW, &data_file_lock);
 
     // Get information from table, how many bytes is each column?
     // Make sure that excess space is filled with null characters
@@ -372,45 +372,43 @@ void insert_data(request_t *req, return_value *ret_val) {
     first->next = NULL;
     populate_column(first, token);
 
-    // Du har columns, varje column innehåller datan som ska insertas.
-    // Loopa igenom varje column och jämför om datan passar in på "first"
-    // columnen. Jämför antalet columns som ska insertas och ge error om det är
-    // för många? Om datan stämmer överens, skriv den till datafilen
-
-    // write_to_datafile checks and writes to data recursively
-    // if there is an sanitation error, just dont't write the buffer to the file
     dynamicstr *output_buffer;
     string_init(&output_buffer);
-    column_to_buffer(first, table.columns, output_buffer);
-
-    printf("%s\n", output_buffer->buffer);
-    printf("Size: %d\n", output_buffer->size);
+    if (!(column_to_buffer(first, table.columns, output_buffer, &ret_val->msg) <
+          0)) {
+	if (fprintf(data_file, "%s\n", output_buffer->buffer) < 0)
+	    ;
+	ret_val->msg = create_format_buffer("Success.\n");
+	ret_val->success = true;
+	// fprintf error
+    }
     string_free(&output_buffer);
     unpopulate_column(first);
     free(data_file_name);
     fclose(meta);
     fclose(data_file);
+    return;
 }
 
 int column_to_buffer(column_t *table_column, column_t *input_column,
-                     dynamicstr *output_buffer) {
+                     dynamicstr *output_buffer, char **ret_msg) {
     if (table_column->data_type != input_column->data_type) {
 	// sanitation error
+	*ret_msg = create_format_buffer(
+	    "syntax error, value(s) are of wrong data type.\n");
+	return -1;
     }
     if (input_column->data_type == 0) {
 	// INT
 	// write the integer value and pad the rest
 	char *integer_val = (char *)malloc(10);
 	memset(integer_val, 0, 10);
-	snprintf(integer_val, 10 + 1, "%d%*c", input_column->int_val, 9, ' ');
+	snprintf(integer_val, 10 + 1, "%0*d", 10, input_column->int_val);
 
 	string_set(&output_buffer, "%s", integer_val);
     } else {
 	// VARCHAR
 	// Check if the length of the input matches char_size in table_column
-	if (table_column->char_size != strlen(input_column->char_val)) {
-	    // Input value is to large
-	}
 	char *input_str = input_column->char_val;
 	if ((input_str[0] == '\'') &&
 	    (input_str[strlen(input_str) - 1] == '\'')) {
@@ -418,23 +416,36 @@ int column_to_buffer(column_t *table_column, column_t *input_column,
 	    memmove(input_str + strlen(input_str) - 1,
 	            input_str + strlen(input_str), strlen(input_str));
 	}
-	printf("Char size: %d\n", table_column->char_size);
+	if (table_column->char_size < strlen(input_str)) {
+	    // Input value is to large
+	    *ret_msg = create_format_buffer(
+	        "syntax error, VARCHAR value \"%s\" is to big.\n",
+	        input_column->char_val);
+	    return -1;
+	}
 	char *varchar_val = (char *)malloc(table_column->char_size + 1);
-	memset(varchar_val, 0, table_column->char_size);
-	snprintf(varchar_val, table_column->char_size, "%s%0*d", input_str,
-	         table_column->char_size, 0);
+	int length = table_column->char_size - strlen(input_str);
+	if (length == 0)
+	    snprintf(varchar_val, table_column->char_size + 1, "%s", input_str);
+	else
+	    snprintf(varchar_val, table_column->char_size + 1, "%0*d%s", length,
+	             0, input_str);
 
 	string_set(&output_buffer, "%s", varchar_val);
 	free(varchar_val);
     }
 
     if ((table_column->next != NULL) && (input_column->next != NULL)) {
-	column_to_buffer(table_column->next, input_column->next, output_buffer);
+	if (column_to_buffer(table_column->next, input_column->next,
+	                     output_buffer, ret_msg) < 0)
+	    return -1;
     } else if ((table_column->next == NULL) && (input_column->next == NULL)) {
 	// time to return
 	return 0;
     } else {
 	// This means that the input_columns are either short or to many
+	*ret_msg = create_format_buffer("syntax error, to many values.\n");
+	return -1;
     }
     return 0;
 }
@@ -447,8 +458,6 @@ int populate_column(column_t *current, char *table_row) {
     column_type[0] = '\0';
 
     sscanf(table_row, "%s%*[ ]%[^,']", column_name, column_type);
-    printf("Column: %s,%s\n", column_name, column_type);
-    printf("Length: %ld, %ld\n", strlen(column_name), strlen(column_type));
     current->name = (char *)malloc(strlen(column_name) + 1);
     strcpy(current->name, column_name);
 
