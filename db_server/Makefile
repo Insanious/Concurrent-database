@@ -11,10 +11,10 @@ all: db
 $(BUILD)/%.o: $(SRC)/%.c
 	$(CXX) $(FLAGS) $(INC) -c $< -o $@
 
-db: $(BUILD)/main.o $(BUILD)/server.o $(BUILD)/db_functions.o $(BUILD)/queue.o $(BUILD)/thread_pool.o
+db: $(BUILD)/main.o $(BUILD)/server.o $(BUILD)/db_functions.o $(BUILD)/queue.o $(BUILD)/thread_pool.o $(BUILD)/dynamic_string.o
 
 	@echo "*** Building db ***"
-	$(CXX) $(FLAGS) $(LFLAGS) -o db $(BUILD)/main.o $(BUILD)/server.o $(BUILD)/db_functions.o $(BUILD)/queue.o $(BUILD)/thread_pool.o $(LIB)
+	$(CXX) $(FLAGS) $(LFLAGS) -o db $(BUILD)/main.o $(BUILD)/server.o $(BUILD)/db_functions.o $(BUILD)/queue.o $(BUILD)/thread_pool.o $(BUILD)/dynamic_string.o $(LIB)
 
 	@echo "*** Success! ***"
 
