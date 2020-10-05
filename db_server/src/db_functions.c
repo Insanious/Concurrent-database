@@ -332,7 +332,7 @@ void select_table(char *name, client_request *cli_req) {
     // allocate buffer to send to client
     msg = calloc(CHARS_PER_SEND, sizeof(char));
 
-    while (remaining_rows > 0) // iterate while there are rows left
+    while (remaining_rows >= 0) // iterate while there are rows left
     {
 	count = 0;
 	while (true) // iterate for each row
@@ -680,7 +680,6 @@ void create_template_column(char *name, FILE *meta, column_t **first, int *chars
 	token = strtok(0, COL_DELIM);
 	if (strcmp(token, "INT") != 0) {
 	    sscanf(token, "%*[^0123456789]%d", &current->char_size); // extract number between paranthesis
-	    current->char_size += 2;                                 // +2 to account for the ''
 	    *chars_in_row += current->char_size;
 	} else
 	    *chars_in_row += CHARS_PER_INT; // chars in an INT
