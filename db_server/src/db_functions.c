@@ -75,7 +75,7 @@ void execute_request(void *arg) {
 	printf("RT_DELETE\n");
 	break;
     case RT_UPDATE:
-	printf("RT_UPDATE\n");
+	update_data(cli_req->request, &ret_val);
 	break;
     }
 
@@ -544,6 +544,110 @@ void insert_data(request_t *req, return_value *ret_val) {
     fclose(meta);
     fclose(data_file);
     return;
+}
+
+void update_data(request_t *req, return_value *ret_val) {
+    // 1. find row with primary key
+    // 2. extract row
+    // 3. find the column/columns to change
+    // 4. do the change and ensure padding is present
+    // 5. write new row to the file at the start of the extracted row
+
+    // 1. assume the first row until primary keys has been implemented
+
+    // 2. extract row
+
+    FILE *meta = fopen(META_FILE, "r");
+    if (!meta) // if the database is empty, the table can't exist in the database
+    {
+	ret_val->msg = create_format_buffer("error: %s does not exist\n", META_FILE);
+	return;
+    }
+
+    column_t *first = NULL;
+    int chars_in_row = 0;
+    create_template_column(req->table_name, meta, &first, &chars_in_row);
+    column_t *current = first;
+    while (current->next) { // create_template_column() gives one tab char per column, we don't want that here
+	chars_in_row--;
+	current = current->next;
+    }
+
+    // chars_in_row -= 2; // to account for the tabs
+
+    // did not find the table
+    if (first == NULL) {
+	ret_val->msg = create_format_buffer("error: '%s' does not exist\n", req->table_name);
+	return;
+    }
+
+    char *final_name = NULL;
+    if (create_full_data_path_from_name(req->table_name, &final_name) < 0) {
+	ret_val->msg = create_format_buffer("error: server ran out of memory\n");
+	return;
+    }
+
+    FILE *data_file = fopen(final_name, "r");
+    size_t data_descriptor = fileno(data_file);
+    struct flock data_lock;
+    memset(&data_lock, 0, sizeof(data_lock));
+    data_lock.l_type = F_RDLCK;
+
+    fcntl(data_descriptor, F_OFD_SETLKW, &data_lock);
+
+    int i, count, ch, index_of_row;
+    bool found_key = false;
+    int primary_key = 2;
+    char int_buffer[CHARS_PER_INT + 1];
+    int primary_key_start = 0;
+
+    while (!found_key) {
+	current = first;
+
+	while (current) {
+	    index_of_row = 0;
+	    for (i = 0; i < primary_key_start; i++, index_of_row++) // traverse the row to the primary_key_start
+		if ((ch = fgetc(data_file)) == EOF)
+		    goto eof_error;
+
+	    count = 0;
+	    // zero-set buffer, this also makes sure the string is null-terminated
+	    memset(int_buffer, '\0', CHARS_PER_INT);
+
+	    for (i = 0; i < CHARS_PER_INT; i++, index_of_row++) { // read primary key of row
+		if ((ch = fgetc(data_file)) == EOF)
+		    goto eof_error;
+
+		int_buffer[count++] = (char)ch;
+	    }
+
+	    if (primary_key == strtol(int_buffer, NULL, 10)) {   // matches the primary key
+		lseek(data_descriptor, -index_of_row, SEEK_CUR); // lseek to beginning of this row
+		found_key = true;
+		printf("found key: %ld\n", strtol(int_buffer, NULL, 10));
+		break;
+	    }
+
+	    for (i = index_of_row; i < chars_in_row; i++) // traverse the rest of the row
+		if ((ch = fgetc(data_file)) == EOF)
+		    goto eof_error;
+	}
+    }
+
+    printf("where: %s\n", req->where->name);
+    column_t *temp = req->columns;
+    while (temp) {
+	printf("name: %s\n", temp->name);
+	printf("char_val: %s\n", temp->char_val);
+	temp = temp->next;
+    }
+
+    ret_val->msg = create_format_buffer("successfully updated row\n");
+    ret_val->success = true;
+    return;
+
+eof_error:
+    ret_val->msg = create_format_buffer("error: couldn't find row with primary key %d\n", primary_key);
 }
 
 int column_to_buffer(column_t *table_column, column_t *input_column,
