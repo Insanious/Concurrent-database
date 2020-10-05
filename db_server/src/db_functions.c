@@ -28,6 +28,7 @@ static char *create_format_buffer(const char *format, ...) {
 void execute_request(void *arg) {
     client_request *cli_req = ((client_request *)arg);
     server_t *server = ((server_t *)cli_req->server);
+    log_to_file(server->log_file, "execute_request()\n");
     return_value ret_val;
     ret_val.success = false;
     ret_val.msg = NULL;
@@ -136,11 +137,9 @@ void print_tables(return_value *ret_val) {
     char *buffer;
 
     FILE *meta = fopen(META_FILE, "r");
-    if (!meta) // if the database is empty, the table can't exist in the
-               // database
+    if (!meta) // if the database is empty, the table can't exist in the database
     {
-	ret_val->msg =
-	    create_format_buffer("error: %s does not exist\n", META_FILE);
+	ret_val->msg = create_format_buffer("error: %s does not exist\n", META_FILE);
 	return;
     }
 

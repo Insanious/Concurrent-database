@@ -50,6 +50,10 @@ void assign_work(void *arg) {
 }
 
 server_t *server_create(bool daemon, size_t port, size_t request_handling, char *log_file) {
+
+    if (daemon)
+	daemonize_server(log_file);
+
     size_t queue_size = 32;
     size_t nr_of_threads = 8;
 
@@ -170,6 +174,33 @@ void server_destroy(server_t *server) {
 
 void server_init(server_t *server) {
     thread_pool_add_work(server->pool, assign_work, server);
+}
+
+void daemonize_server(char *log_file) {
+    // fork and exit parent gracefully
+    pid_t pid = fork();
+    if (pid < 0) {
+	log_to_file(log_file, "Error: Couldn't fork() in daemonize_server()");
+	exit(EXIT_FAILURE);
+    }
+
+    if (pid > 0) // close parent process so that only the child remains
+	exit(EXIT_SUCCESS);
+
+    umask(0);
+
+    // Create a new SID for the child process
+    pid_t sid = setsid();
+    if (sid < 0) {
+	/* Log any failure */
+	log_to_file(log_file, "Error: Couldn't setsid() in daemonize_server()");
+	exit(EXIT_FAILURE);
+    }
+
+    // Close out the standard file descriptors
+    close(STDIN_FILENO);
+    close(STDOUT_FILENO);
+    close(STDERR_FILENO);
 }
 
 char *get_ip_from_socket_fd(int fd) {

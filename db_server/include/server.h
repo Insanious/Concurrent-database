@@ -13,6 +13,7 @@
 #include <string.h>
 #include <sys/select.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "db_functions.h"
@@ -54,13 +55,14 @@ struct connection_args {
     char *msg;
 };
 
-server_t *server_create(bool daemon, size_t port, size_t request_handling,char *log_file);
+void assign_work(void *arg);
+
+server_t *server_create(bool daemon, size_t port, size_t request_handling, char *log_file);
 void server_listen(server_t *server);
 void server_destroy(server_t *server);
 void server_init(server_t *server);
 
+void daemonize_server(char *log_file);
 char *get_ip_from_socket_fd(int fd);
-
-void assign_work(void *arg);
 
 #endif
