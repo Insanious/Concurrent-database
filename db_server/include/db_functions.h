@@ -46,7 +46,7 @@ void execute_request(void *arg);
 void create_table(client_request *cli_req, return_value *ret_val);
 void print_tables(return_value *ret_val);
 void print_schema(char *name, return_value *ret_val);
-void add_table(table_t *table, FILE *meta, char *log_file);
+int add_table(table_t *table, FILE *meta, dynamicstr *output_buffer, char *log_file, char **error_msg);
 void select_table(char *name, client_request *cli_req);
 void drop_table(client_request *cli_req /*char *name*/, return_value *ret_val);
 bool table_exists(char *name, FILE *meta);

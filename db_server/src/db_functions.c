@@ -117,14 +117,27 @@ void create_table(client_request *cli_req, return_value *ret_val) {
     }
 
     server_t *server = ((server_t *)cli_req->server);
-    add_table(&table, meta, server->log_file);
+    dynamicstr *output_buffer;
+    string_init(&output_buffer);
+    if (add_table(&table, meta, output_buffer, server->log_file, &ret_val->msg) < 0) {
+	// Implicates that an error occured
+	string_free(&output_buffer);
+	fclose(meta);
+	return;
+    };
+
     if (create_data_file(table.name) < 0) {
 	ret_val->msg = create_format_buffer("error: could not create data file for table '%s'\n", table.name);
+	string_free(&output_buffer);
 	fclose(meta);
 	return;
     }
 
+    if (fprintf(meta, "%s", output_buffer->buffer) < 0)
+	;
+
     fclose(meta);
+    string_free(&output_buffer);
 
     log_to_file(server->log_file, "Connection %s created table '%s'\n", get_ip_from_socket_fd(cli_req->client_socket), table.name);
 
@@ -224,14 +237,14 @@ void print_schema(char *name, return_value *ret_val) {
     ret_val->msg = create_format_buffer("error: table '%s' does not exists\n", name);
 }
 
-void add_table(table_t *table, FILE *meta, char *log_file) {
+int add_table(table_t *table, FILE *meta, dynamicstr *output_buffer, char *log_file, char **error_msg) {
     // Issue: When using bytelocking two tables of the same name could occur.
     // Solution: Lock the whole file, look for table name, if it doesn't exist
     // add it, unlock the file.
 
     if (!(meta = freopen(NULL, "a", meta))) {
 	log_to_file(log_file, "Error: Couldn't freopen() in add_table()\n");
-	return;
+	return -1;
     }
 
     int meta_descriptor = fileno(meta);
@@ -242,24 +255,54 @@ void add_table(table_t *table, FILE *meta, char *log_file) {
 
     fcntl(meta_descriptor, F_OFD_SETLKW, &lock);
 
-    fprintf(meta, "%s%s", table->name, COL_DELIM);
+    string_set(&output_buffer, "%s%s", table->name, COL_DELIM);
+
+    int primary_key_count = 0;
 
     column_t *col = table->columns;
-    while (col->next) // loop while the column is not the last one
+    while (col->next && (primary_key_count <= 1)) // loop while the column is not the last one
     {
 	// write each column to the file with the appropriate type format
-	if (col->data_type == DT_INT)
-	    fprintf(meta, "%s%sINT%s", col->name, TYPE_DELIM, COL_DELIM);
-	else
-	    fprintf(meta, "%s%sVARCHAR(%d)%s", col->name, TYPE_DELIM, col->char_size, COL_DELIM);
+	if (col->data_type == DT_INT) {
+	    if (col->is_primary_key) {
+		string_set(&output_buffer, "1%s%sINT%s", col->name, TYPE_DELIM, COL_DELIM);
+		primary_key_count += 1;
+	    } else
+		string_set(&output_buffer, "%s%sINT%s", col->name, TYPE_DELIM, COL_DELIM);
+	} else {
+	    if (col->is_primary_key) {
+		// error, primary keys are not allowed on VARCHARS
+		*error_msg = create_format_buffer("syntax error: Primary keys are only allowed on int values.\n");
+		return -1;
+		break;
+	    } else
+		string_set(&output_buffer, "%s%sVARCHAR(%d)%s", col->name, TYPE_DELIM, col->char_size, COL_DELIM);
+	}
 
 	col = col->next;
     }
     // handle last one separately to instead use a newline instead of the column delimiter
-    if (col->data_type == DT_INT)
-	fprintf(meta, "%s%sINT%s", col->name, TYPE_DELIM, ROW_DELIM);
-    else
-	fprintf(meta, "%s%sVARCHAR(%d)%s", col->name, TYPE_DELIM, col->char_size, ROW_DELIM);
+    if (col->data_type == DT_INT) {
+	if (col->is_primary_key) {
+	    string_set(&output_buffer, "1%s%sINT%s", col->name, TYPE_DELIM, ROW_DELIM);
+	    primary_key_count += 1;
+	} else
+	    string_set(&output_buffer, "%s%sINT%s", col->name, TYPE_DELIM, ROW_DELIM);
+    } else {
+	if (col->is_primary_key) {
+	    // error, primary keys are not allowed on VARCHARS
+	    *error_msg = create_format_buffer("syntax error: Primary keys are only allowed on int values.\n");
+	    return -1;
+	} else
+	    string_set(&output_buffer, "%s%sVARCHAR(%d)%s", col->name, TYPE_DELIM, col->char_size, ROW_DELIM);
+    }
+
+    if (primary_key_count > 1) {
+	//error, to many primary keys
+	*error_msg = create_format_buffer("syntax error: Only one primary key is allowed.\n");
+	return -1;
+    }
+    return 0;
 }
 
 void select_table(char *name, client_request *cli_req) {
@@ -567,6 +610,7 @@ int column_to_buffer(column_t *table_column, column_t *input_column,
 	// VARCHAR
 	// Check if the length of the input matches char_size in table_column
 	char *input_str = input_column->char_val;
+	// Remove the ' '
 	if ((input_str[0] == '\'') &&
 	    (input_str[strlen(input_str) - 1] == '\'')) {
 	    memmove(input_str + 0, input_str + 1, strlen(input_str));
