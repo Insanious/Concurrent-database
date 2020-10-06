@@ -27,14 +27,15 @@ static char *create_format_buffer(const char *format, ...) {
 
 void execute_request(void *arg) {
 	client_request *cli_req = ((client_request *)arg);
-	server_t *server = ((server_t *)cli_req->server);
-	return_value ret_val;
-	ret_val.success = false;
-	ret_val.msg = NULL;
+	// server_t *server = ((server_t *)cli_req->server);
+	// return_value ret_val;
+	// ret_val.msg = NULL;
+	char *client_msg = NULL;
 
 	if (cli_req->error) {
 		if (send(cli_req->client_socket, cli_req->error, strlen(cli_req->error), 0) < 0)
-			log_to_file(server->log_file, "Error: Couldn't send() to socket %ld in execute_request()\n", cli_req->client_socket);
+			log_to_file("Error: Couldn't send() to socket %ld in execute_request()\n", cli_req->client_socket);
+
 		free(cli_req->error);
 		free(cli_req);
 		return;
@@ -42,22 +43,22 @@ void execute_request(void *arg) {
 
 	switch (cli_req->request->request_type) {
 	case RT_CREATE:
-		create_table(cli_req, &ret_val);
+		create_table(cli_req, &client_msg);
 		break;
 	case RT_TABLES:
-		print_tables(&ret_val);
+		print_tables(&client_msg);
 		break;
 	case RT_SCHEMA:
-		print_schema(cli_req->request->table_name, &ret_val);
+		print_schema(cli_req->request->table_name, &client_msg);
 		break;
 	case RT_DROP:
-		drop_table(cli_req, &ret_val);
+		drop_table(cli_req, &client_msg);
 		break;
 	case RT_INSERT:
-		insert_data(cli_req->request, &ret_val);
+		insert_data(cli_req, &client_msg);
 		break;
 	case RT_SELECT:
-		select_table(cli_req->request->table_name, cli_req);
+		select_table(cli_req, &client_msg);
 		break;
 	case RT_QUIT:
 		quit_connection(cli_req);
@@ -70,14 +71,16 @@ void execute_request(void *arg) {
 		break;
 	}
 
-	if (ret_val.msg && send(cli_req->client_socket, ret_val.msg, strlen(ret_val.msg), 0) < 0)
-		log_to_file(server->log_file, "Error: Couldn't send() to socket %ld in execute_request()\n", cli_req->client_socket);
+	if (client_msg && send(cli_req->client_socket, client_msg, strlen(client_msg), 0) < 0) {
+		log_to_file("Error: Couldn't send() to socket %ld in execute_request()\n", cli_req->client_socket);
+		free(client_msg);
+	}
 
 	destroy_request(cli_req->request);
 	free(cli_req);
 }
 
-void create_table(client_request *cli_req, return_value *ret_val) {
+void create_table(client_request *cli_req, char **client_msg) {
 	table_t table;
 	FILE *meta = NULL;
 	table.name = cli_req->request->table_name;
@@ -92,7 +95,7 @@ void create_table(client_request *cli_req, return_value *ret_val) {
 
 	fcntl(metaDescriptor, F_OFD_SETLKW, &lock);
 	if (table_exists(table.name, meta)) {
-		ret_val->msg = create_format_buffer("error: table '%s' already exists\n", table.name);
+		*client_msg = create_format_buffer("error: table '%s' already exists\n", table.name);
 		fclose(meta);
 		return;
 	}
@@ -100,7 +103,7 @@ void create_table(client_request *cli_req, return_value *ret_val) {
 	column_t *col = cli_req->request->columns;
 	while (col) {
 		if (col->data_type == DT_VARCHAR && !is_valid_varchar(col)) {
-			ret_val->msg = create_format_buffer("error: VARCHAR contained faulty value '%d'\n", col->char_size);
+			*client_msg = create_format_buffer("error: VARCHAR contained faulty value '%d'\n", col->char_size);
 			fclose(meta);
 			return;
 		}
@@ -108,29 +111,28 @@ void create_table(client_request *cli_req, return_value *ret_val) {
 		col = col->next;
 	}
 
-	server_t *server = ((server_t *)cli_req->server);
-	add_table(&table, meta, server->log_file);
+	// server_t *server = ((server_t *)cli_req->server);
+	add_table(&table, meta);
 	if (create_data_file(table.name) < 0) {
-		ret_val->msg = create_format_buffer("error: could not create data file for table '%s'\n", table.name);
+		*client_msg = create_format_buffer("error: could not create data file for table '%s'\n", table.name);
 		fclose(meta);
 		return;
 	}
 
 	fclose(meta);
 
-	log_to_file(server->log_file, "Connection %s created table '%s'\n", get_ip_from_socket_fd(cli_req->client_socket), table.name);
+	log_to_file("Connection %s created table '%s'\n", get_ip_from_socket_fd(cli_req->client_socket), table.name);
 
-	ret_val->msg = create_format_buffer("successfully created table '%s'\n", table.name);
-	ret_val->success = true;
+	*client_msg = create_format_buffer("successfully created table '%s'\n", table.name);
 }
 
-void print_tables(return_value *ret_val) {
+void print_tables(char **client_msg) {
 	char *buffer;
 
 	FILE *meta = fopen(META_FILE, "r");
 	if (!meta) // if the database is empty, the table can't exist in the database
 	{
-		ret_val->msg = create_format_buffer("error: %s does not exist\n", META_FILE);
+		*client_msg = create_format_buffer("error: %s does not exist\n", META_FILE);
 		return;
 	}
 
@@ -152,75 +154,76 @@ void print_tables(return_value *ret_val) {
 	free(line); // free the getline allocated line
 	fclose(meta);
 
-	ret_val->msg = buffer;
-	ret_val->success = true;
+	*client_msg = buffer;
 }
 
-void print_schema(char *name, return_value *ret_val) {
+void print_schema(char *name, char **client_msg) {
 	FILE *meta = fopen(META_FILE, "r");
 	if (!meta) // if the database is empty, the table can't exist in the database
 	{
-		ret_val->msg = create_format_buffer("error: '%s' does not exist\n", META_FILE);
+		*client_msg = create_format_buffer("error: '%s' does not exist\n", META_FILE);
 		return;
 	}
 
 	char *token = NULL;
 	char *line = NULL;
 	size_t nr_of_chars = 0;
+	bool exists = false;
 
 	while (getline(&line, &nr_of_chars, meta) != -1) {
 		token = strtok(line, COL_DELIM);
-		if (strcmp(token, name) != 0) {
-			free(line); // free the getline allocated string
-			line = NULL;
-			continue;
+		if (strcmp(token, name) == 0) {
+			exists = true;
+			break;
 		}
+	}
 
-		// found the table
-		size_t buffer_length = START_LENGTH;
-		char *buffer = (char *)malloc(buffer_length * sizeof(char));
-
-		// print all the columns of the table
-		while ((token = strtok(0, TYPE_DELIM))) {
-			while (strlen(token) + 2 > buffer_length - strlen(buffer)) // +2 for the tabs
-				buffer_length = realloc_str(&buffer, buffer_length);
-
-			strcat(buffer, token);
-			strcat(buffer, "\t");
-			if (strlen(token) < 8) // format output for smaller names
-				strcat(buffer, "\t");
-
-			token = strtok(0, COL_DELIM);
-			while (strlen(token) + 1 > buffer_length - strlen(buffer)) // +1 for the newline
-				buffer_length = realloc_str(&buffer, buffer_length);
-
-			strcat(buffer, token);
-			strcat(buffer, "\n");
-		}
-
-		// remove last newline
-		buffer[strlen(buffer) - 1] = '\0';
-
-		ret_val->msg = buffer;
-		ret_val->success = true;
-		free(line); // free the getline allocated string
+	if (!exists) { // the while loop continued until the end without finding the table
+		free(line);
 		fclose(meta);
+		*client_msg = create_format_buffer("error: table '%s' does not exists\n", name);
 		return;
 	}
 
+	// found the table
+	size_t buffer_length = START_LENGTH;
+	char *buffer = (char *)calloc(buffer_length * sizeof(char), sizeof(char));
+
+	// print all the columns of the table
+	while ((token = strtok(0, TYPE_DELIM))) {
+		while (strlen(token) + 2 > buffer_length - strlen(buffer)) // +2 for the tabs
+			buffer_length = realloc_str(&buffer, buffer_length);
+
+		strcat(buffer, token);
+		strcat(buffer, "\t");
+		if (strlen(token) < 8) // format output for smaller names
+			strcat(buffer, "\t");
+
+		token = strtok(0, COL_DELIM);
+		while (strlen(token) + 1 > buffer_length - strlen(buffer)) // +1 for the newline
+			buffer_length = realloc_str(&buffer, buffer_length);
+
+		strcat(buffer, token);
+		strcat(buffer, "\n");
+	}
+
+	// remove last newline
+	buffer[strlen(buffer) - 1] = '\0';
+
+	*client_msg = buffer;
 	free(line); // free the getline allocated string
 	fclose(meta);
+	return;
 
-	ret_val->msg = create_format_buffer("error: table '%s' does not exists\n", name);
+	// free(line); // free the getline allocated string
+	// fclose(meta);
+	//
+	// *client_msg = create_format_buffer("error: table '%s' does not exists\n", name);
 }
 
-void add_table(table_t *table, FILE *meta, char *log_file) {
-	// Issue: When using bytelocking two tables of the same name could occur.
-	// Solution: Lock the whole file, look for table name, if it doesn't exist
-	// add it, unlock the file.
-
+void add_table(table_t *table, FILE *meta) {
 	if (!(meta = freopen(NULL, "a", meta))) {
-		log_to_file(log_file, "Error: Couldn't freopen() in add_table()\n");
+		log_to_file("Error: Couldn't freopen() in add_table()\n");
 		return;
 	}
 
@@ -252,17 +255,11 @@ void add_table(table_t *table, FILE *meta, char *log_file) {
 		fprintf(meta, "%s%sVARCHAR(%d)%s", col->name, TYPE_DELIM, col->char_size, ROW_DELIM);
 }
 
-void select_table(char *name, client_request *cli_req) {
-	server_t *server = ((server_t *)cli_req->server);
+void select_table(client_request *cli_req, char **client_msg) {
 	FILE *meta = fopen(META_FILE, "r");
-	char *msg = NULL;
 	if (!meta) // if the database is empty, the table can't exist in the database
 	{
-		msg = create_format_buffer("error: '%s' does not exist\n", META_FILE);
-		if (send(cli_req->client_socket, msg, strlen(msg), 0) < 0)
-			log_to_file(server->log_file, "Error: Couldn't send() to socket %ld in select_table()\n", cli_req->client_socket);
-
-		free(msg);
+		*client_msg = create_format_buffer("error: '%s' does not exist\n", META_FILE);
 		return;
 	}
 
@@ -276,29 +273,28 @@ void select_table(char *name, client_request *cli_req) {
 
 	column_t *first = NULL;
 	int chars_in_row = 0;
-	create_template_column(name, meta, &first, &chars_in_row);
+	create_template_column(cli_req->request->table_name, meta, &first, &chars_in_row);
 	fclose(meta);
 
 	// did not find the table
 	if (first == NULL) {
-		msg = create_format_buffer("error: '%s' does not exist\n", name);
-		if (send(cli_req->client_socket, msg, strlen(msg), 0) < 0)
-			log_to_file(server->log_file, "Error: Couldn't send() to socket %ld in select_table()\n", cli_req->client_socket);
+		*client_msg = create_format_buffer("error: '%s' does not exist\n", cli_req->request->table_name);
+		goto cleanup_and_exit;
+	}
 
-		free(msg);
-		return;
+	// increment chars_in_row nr_of_columns - 1 times since the msg sent to client is tab-separated between columns
+	column_t *current = first;
+	while (current->next) {
+		chars_in_row++;
+		current = current->next;
 	}
 
 	char *final_name = NULL;
-	if (create_full_data_path_from_name(name, &final_name) < 0) {
-		log_to_file(server->log_file, "Error: Couldn't create_full_data_path_from_name() in select_table()\n");
+	if (create_full_data_path_from_name(cli_req->request->table_name, &final_name) < 0) {
+		log_to_file("Error: Couldn't create_full_data_path_from_name() in select_table()\n");
 
-		msg = create_format_buffer("error: server ran out of memory\n");
-		if (send(cli_req->client_socket, msg, strlen(msg), 0) < 0)
-			log_to_file(server->log_file, "Error: Couldn't send() to socket %ld in select_table()\n", cli_req->client_socket);
-
-		free(msg);
-		return;
+		*client_msg = create_format_buffer("error: server ran out of memory\n");
+		goto cleanup_and_exit;
 	}
 
 	FILE *data_file = fopen(final_name, "r");
@@ -309,18 +305,15 @@ void select_table(char *name, client_request *cli_req) {
 
 	fcntl(data_descriptor, F_OFD_SETLKW, &data_lock);
 
-	// lseek to end of file
-	int chars_in_file = lseek(data_descriptor, 0, SEEK_END);
-	// lseek back to beginning
-	lseek(data_descriptor, 0, SEEK_SET);
+	int chars_in_file = lseek(data_descriptor, 0, SEEK_END); // lseek to end of file
+	lseek(data_descriptor, 0, SEEK_SET);					 // lseek back to beginning
 
 	int remaining_rows = chars_in_file / chars_in_row;
 	int chars_in_column, count, k;
 	char ch = '0';
-	column_t *current;
 
 	// allocate buffer to send to client
-	msg = calloc(CHARS_PER_SEND, sizeof(char));
+	char *msg = calloc(CHARS_PER_SEND, sizeof(char));
 
 	while (remaining_rows >= 0) // iterate while there are rows left
 	{
@@ -331,7 +324,7 @@ void select_table(char *name, client_request *cli_req) {
 			while (current) // iterate for each column
 			{
 				// how many chars to iterate over for the current column
-				chars_in_column = (current->char_size == 0) ? 10 : current->char_size;
+				chars_in_column = (current->char_size == 0) ? CHARS_PER_INT : current->char_size;
 
 				// iterate and ignore the padding
 				for (k = 0; k < chars_in_column; k++)
@@ -345,7 +338,7 @@ void select_table(char *name, client_request *cli_req) {
 				for (int l = k; l < chars_in_column; l++)
 					msg[count++] = (char)fgetc(data_file);
 
-				if (current->next) // append '\t' only if it's not the last column
+				if (current->next) // append '\t' if it's not the last column
 					msg[count++] = '\t';
 
 				current = current->next;
@@ -361,21 +354,26 @@ void select_table(char *name, client_request *cli_req) {
 		}
 
 		if (send(cli_req->client_socket, msg, count, 0) < 0)
-			log_to_file(server->log_file, "Error: Couldn't send() to socket %ld in select_table()\n", cli_req->client_socket);
+			log_to_file("Error: Couldn't send() to socket %ld in select_table()\n", cli_req->client_socket);
 
-		// clear msg buffer
-		memset(msg, 0, count);
+		memset(msg, 0, count); // clear msg buffer
 	}
-	free(msg);
 
+	free(msg);
+	free(final_name);
 	fclose(data_file);
+
+cleanup_and_exit:
+	if (first)
+		unpopulate_column(first);
+	fclose(meta);
 }
 
-void drop_table(client_request *cli_req /*char *name*/, return_value *ret_val) {
+void drop_table(client_request *cli_req, char **client_msg) {
 	FILE *meta = fopen(META_FILE, "r+");
 	if (!meta) // if the database is empty, the table can't exist in the database
 	{
-		ret_val->msg = create_format_buffer("error: '%s' does not exist\n", META_FILE);
+		*client_msg = create_format_buffer("error: '%s' does not exist\n", META_FILE);
 		return;
 	}
 
@@ -385,22 +383,22 @@ void drop_table(client_request *cli_req /*char *name*/, return_value *ret_val) {
 	lock.l_type = F_WRLCK;
 	fcntl(meta_descriptor, F_OFD_SETLKW, &lock);
 
-	server_t *server = ((server_t *)cli_req->server);
+	// server_t *server = ((server_t *)cli_req->server);
 	char temp_name[] = "temp.txt";
 	FILE *temp_file = fopen(temp_name, "w"); // create and open a temporary file in write mode
 	char *line = NULL;
 	size_t nr_of_chars = 0;
 	size_t length = strlen(cli_req->request->table_name);
 	size_t i;
+	bool failed = true;
 	// copy all the contents to the temporary file except the specific line
 	while (getline(&line, &nr_of_chars, meta) != -1) {
+		// name check, we use this instead of strtok since we need to preserve the value of line
 		for (i = 0; i < length && line[i] == cli_req->request->table_name[i]; i++)
 			;
 		// check if the loop didn't exit early and that the next character on the line is COL_DELIM
 		if (i == length && line[i] == COL_DELIM[0]) {
-			log_to_file(server->log_file, "Connection %s dropped table '%s'\n", get_ip_from_socket_fd(cli_req->client_socket), cli_req->request->table_name);
-			ret_val->success = true;
-			ret_val->msg = create_format_buffer("successfully dropped table '%s'\n", cli_req->request->table_name);
+			failed = false;
 			continue;
 		}
 
@@ -410,10 +408,22 @@ void drop_table(client_request *cli_req /*char *name*/, return_value *ret_val) {
 	fclose(meta);
 	fclose(temp_file);
 
-	if (!ret_val->success) {
-		ret_val->msg = create_format_buffer("error: '%s' does not exist\n", cli_req->request->table_name);
+	if (failed) {
+		*client_msg = create_format_buffer("error: '%s' does not exist\n", cli_req->request->table_name);
 		remove(temp_name); // remove the temporary file since the request failed
 	} else {
+		char *data_file = NULL;
+		create_full_data_path_from_name(cli_req->request->table_name, &data_file);
+		if (remove(data_file) < 0) {
+			*client_msg = create_format_buffer("error: the server wasn't able to remove table '%s' from the database\n", cli_req->request->table_name);
+			log_to_file("Error: Couldn't remove() the file '%s' in drop_table()\n", data_file);
+			remove(temp_name); // remove the temporary file since the request failed
+			return;
+		}
+
+		log_to_file("Connection %s dropped table '%s'\n", get_ip_from_socket_fd(cli_req->client_socket), cli_req->request->table_name);
+		*client_msg = create_format_buffer("successfully dropped table '%s'\n", cli_req->request->table_name);
+
 		remove(META_FILE);			  // remove the original file
 		rename(temp_name, META_FILE); // rename the temporary file to original name
 	}
@@ -442,14 +452,14 @@ bool table_exists(char *name, FILE *meta) {
 
 void quit_connection(client_request *cli_req) {
 	server_t *server = ((server_t *)cli_req->server);
-	log_to_file(server->log_file, "Closed connection from %s\n", get_ip_from_socket_fd(cli_req->client_socket));
+	log_to_file("Closed connection from %s\n", get_ip_from_socket_fd(cli_req->client_socket));
 
 	FD_CLR(cli_req->client_socket, &(server->current_sockets));
 	// shutdown + close to ensure that both the socket and the telnet connection is closed
 	if (shutdown(cli_req->client_socket, SHUT_RDWR) == -1)
-		log_to_file(server->log_file, "Error: Couldn't shutdown() socket %ld in execute_request()\n", cli_req->client_socket);
+		log_to_file("Error: Couldn't shutdown() socket %ld in execute_request()\n", cli_req->client_socket);
 	if (close(cli_req->client_socket) == -1)
-		log_to_file(server->log_file, "Error: Couldn't close() socket %ld in execute_request()\n", cli_req->client_socket);
+		log_to_file("Error: Couldn't close() socket %ld in execute_request()\n", cli_req->client_socket);
 }
 
 bool is_valid_varchar(column_t *col) { return col->char_size >= 0; }
@@ -465,25 +475,32 @@ int create_data_file(char *t_name) {
 	return 0;
 }
 
-void insert_data(request_t *req, return_value *ret_val) {
+void insert_data(client_request *cli_req, char **client_msg) {
+	FILE *meta = NULL;
+	FILE *data_file = NULL;
+	column_t *first = NULL;
+	dynamicstr *output_buffer = NULL;
+	char *data_file_name = NULL;
+	char *line = NULL;
+
 	table_t table;
-	table.name = req->table_name;
-	table.columns = req->columns;
+	table.name = cli_req->request->table_name;
+	table.columns = cli_req->request->columns;
 
-	int name_size = strlen(table.name);
-	char *data_file_name = (char *)malloc(strlen(DATA_FILE_PATH) + name_size +
-										  strlen(DATA_FILE_ENDING) + 1);
-	if (data_file_name == NULL)
-		perror("Malloc error, insert_data");
-	strcpy(data_file_name, DATA_FILE_PATH);
-	strcat(data_file_name, table.name);
-	strcat(data_file_name, DATA_FILE_ENDING);
+	if (create_full_data_path_from_name(table.name, &data_file_name) < 0) {
+		*client_msg = create_format_buffer("error: server could not create the data path from '%s'\n", table.name);
+		goto cleanup_and_exit;
+	}
 
-	printf("This is the filename: %s. This is the file size: %ld\n",
-		   data_file_name, strlen(data_file_name));
+	if (!(meta = fopen(META_FILE, "r"))) {
+		*client_msg = create_format_buffer("error: '%s' does not exist\n", META_FILE);
+		goto cleanup_and_exit;
+	}
 
-	FILE *meta = fopen(META_FILE, "r");
-	FILE *data_file = fopen(data_file_name, "a");
+	if (!(data_file = fopen(data_file_name, "r+"))) {
+		*client_msg = create_format_buffer("error: the file '%s' does not exist\n", data_file_name);
+		goto cleanup_and_exit;
+	}
 
 	int meta_descriptor = fileno(meta);
 	int data_file_descriptor = fileno(data_file);
@@ -504,10 +521,8 @@ void insert_data(request_t *req, return_value *ret_val) {
 	// Make sure that excess space is filled with null characters
 	// Check how INSERT fills up the request_t structure
 
-	// getline into buffer, remove the table name and put it into populate
-	// column
+	// getline into buffer, remove the table name and put it into populate column
 	char *token = NULL;
-	char *line = NULL;
 	bool exists = false;
 	size_t nr_of_chars = 0;
 
@@ -519,69 +534,75 @@ void insert_data(request_t *req, return_value *ret_val) {
 		}
 	}
 
-	if (!exists) {
-		// Table doesn't exist
-		perror("The table doesn't exist");
-		return;
+	if (!exists) { // Table doesn't exist
+		*client_msg = create_format_buffer("error: table '%s' doesn't exist\n", table.name);
+		goto cleanup_and_exit;
 	}
 
 	token = strtok(NULL, COL_DELIM);
 
-	column_t *first = (column_t *)malloc(sizeof(column_t));
+	first = (column_t *)malloc(sizeof(column_t));
 	first->next = NULL;
 	populate_column(first, token);
 
-	dynamicstr *output_buffer;
+	output_buffer = NULL;
 	string_init(&output_buffer);
-	if (!(column_to_buffer(first, table.columns, output_buffer, &ret_val->msg) <
-		  0)) {
-		if (fprintf(data_file, "%s\n", output_buffer->buffer) < 0)
-			;
-		ret_val->msg = create_format_buffer("Success.\n");
-		ret_val->success = true;
-		// fprintf error
+
+	if (column_to_buffer(first, table.columns, output_buffer, client_msg) < 0) {
+		log_to_file("Error: Couldn't column_to_buffer() in insert_data()\n");
+		goto cleanup_and_exit;
 	}
-	string_free(&output_buffer);
-	unpopulate_column(first);
-	free(data_file_name);
-	fclose(meta);
-	fclose(data_file);
-	return;
+
+	if (fprintf(data_file, "%s\n", output_buffer->buffer) < 0) {
+		log_to_file("Error: Couldn't fprintf() in insert_data()\n");
+		goto cleanup_and_exit;
+	}
+
+	*client_msg = create_format_buffer("successfully inserted row into table '%s'\n", table.name);
+	log_to_file("Connection %s inserted a row into table '%s'\n", get_ip_from_socket_fd(cli_req->client_socket), table.name);
+
+cleanup_and_exit:
+	if (meta)
+		fclose(meta);
+	if (data_file)
+		fclose(data_file);
+	if (data_file_name)
+		free(data_file_name);
+	if (line)
+		free(line);
+	if (output_buffer)
+		string_free(&output_buffer);
+	if (first)
+		unpopulate_column(first);
 }
 
-int column_to_buffer(column_t *table_column, column_t *input_column,
-					 dynamicstr *output_buffer, char **ret_msg) {
-	if (table_column->data_type != input_column->data_type) {
-		// sanitation error
-		*ret_msg = create_format_buffer(
-			"syntax error, value(s) are of wrong data type.\n");
+int column_to_buffer(column_t *table_column, column_t *input_column, dynamicstr *output_buffer, char **client_msg) {
+	if (table_column->data_type != input_column->data_type) { // sanitation error
+		*client_msg = create_format_buffer("syntax error, value(s) are of wrong data type.\n");
 		return -1;
 	}
 	if (input_column->data_type == 0) {
 		// INT
 		// write the integer value and pad the rest
-		char *integer_val = (char *)malloc(10);
-		memset(integer_val, 0, 10);
-		snprintf(integer_val, 10 + 1, "%0*d", 10, input_column->int_val);
+		char *integer_val = (char *)malloc(CHARS_PER_INT);
+		memset(integer_val, 0, CHARS_PER_INT);
+		snprintf(integer_val, CHARS_PER_INT + 1, "%0*d", CHARS_PER_INT, input_column->int_val);
 
 		string_set(&output_buffer, "%s", integer_val);
 	} else {
 		// VARCHAR
 		// Check if the length of the input matches char_size in table_column
 		char *input_str = input_column->char_val;
-		if ((input_str[0] == '\'') &&
-			(input_str[strlen(input_str) - 1] == '\'')) {
+		if ((input_str[0] == '\'') && (input_str[strlen(input_str) - 1] == '\'')) {
 			memmove(input_str + 0, input_str + 1, strlen(input_str));
-			memmove(input_str + strlen(input_str) - 1,
-					input_str + strlen(input_str), strlen(input_str));
+			memmove(input_str + strlen(input_str) - 1, input_str + strlen(input_str), strlen(input_str));
 		}
-		if (table_column->char_size < strlen(input_str)) {
-			// Input value is to large
-			*ret_msg = create_format_buffer(
-				"syntax error, VARCHAR value \"%s\" is to big.\n",
-				input_column->char_val);
+
+		if (table_column->char_size < strlen(input_str)) { // Input value is to large
+			*client_msg = create_format_buffer("syntax error, VARCHAR value \"%s\" is to big.\n", input_column->char_val);
 			return -1;
 		}
+
 		char *varchar_val = (char *)malloc(table_column->char_size + 1);
 		int length = table_column->char_size - strlen(input_str);
 		if (length == 0)
@@ -595,15 +616,13 @@ int column_to_buffer(column_t *table_column, column_t *input_column,
 	}
 
 	if ((table_column->next != NULL) && (input_column->next != NULL)) {
-		if (column_to_buffer(table_column->next, input_column->next,
-							 output_buffer, ret_msg) < 0)
+		if (column_to_buffer(table_column->next, input_column->next, output_buffer, client_msg) < 0)
 			return -1;
-	} else if ((table_column->next == NULL) && (input_column->next == NULL)) {
-		// time to return
+	} else if ((table_column->next == NULL) && (input_column->next == NULL)) { // time to return
 		return 0;
 	} else {
 		// This means that the input_columns are either short or to many
-		*ret_msg = create_format_buffer("syntax error, to many values.\n");
+		*client_msg = create_format_buffer("syntax error, to many values.\n");
 		return -1;
 	}
 	return 0;
@@ -662,20 +681,16 @@ void create_template_column(char *name, FILE *meta, column_t **first, int *chars
 		// iterate forward in the list every time except the first time
 		// the first time, first is NULL and we have allocated current outside the loop
 		// so we set first to current and operate on current instead of current->next
-		if (*first != NULL) {
+		if (*first != NULL)
 			current = current->next;
-			// since we append a '\t' between each column, we need to increment chars_in_row
-			// but since we don't want an extra '\t' at the end, we only increment the chars_in_row
-			// (nr_of_columns - 1) times, instead of every iteration
-			(*chars_in_row)++;
-		} else
+		else
 			*first = current;
-		// extract column name
+
 		current->name = calloc(strlen(token) + 1, sizeof(char));
-		strcpy(current->name, token);
+		strcpy(current->name, token); // extract column name
 
 		// extract column type
-		// if the column is an INT, the size will be 10 bytes
+		// if the column is an INT, the size will be CHARS_PER_INT bytes
 		// if the column is a VARCHAR, we need to extract the number of bytes
 		// this means that if the column->char_size is set, it is a VARCHAR,
 		// otherwise it's an INT
@@ -697,8 +712,10 @@ void create_template_column(char *name, FILE *meta, column_t **first, int *chars
 }
 
 int create_full_data_path_from_name(char *name, char **full_path) {
-	if ((*full_path = (char *)malloc(strlen(DATA_FILE_PATH) + strlen(name) + strlen(DATA_FILE_ENDING) + 1)) == NULL)
+	if ((*full_path = (char *)malloc(strlen(DATA_FILE_PATH) + strlen(name) + strlen(DATA_FILE_ENDING) + 1)) == NULL) {
+		log_to_file("Error: Couldn't malloc in create_full_data_path_from_name()\n");
 		return -1;
+	}
 
 	strcpy(*full_path, DATA_FILE_PATH);
 	strcat(*full_path, name);
@@ -706,15 +723,15 @@ int create_full_data_path_from_name(char *name, char **full_path) {
 	return 0;
 }
 
-void log_to_file(char *file_name, const char *format, ...) {
+void log_to_file(const char *format, ...) {
 	if (!format)
 		return;
 
 	va_list args;
 	va_start(args, format);
 
-	if (file_name) {
-		FILE *log = fopen(file_name, "a");
+	if (log_file) {
+		FILE *log = fopen(log_file, "a");
 
 		vfprintf(log, format, args);
 		fclose(log);
@@ -740,8 +757,10 @@ void log_to_file(char *file_name, const char *format, ...) {
 }
 
 int unpopulate_column(column_t *current) {
-	free(current->name);
+	if (current->name)
+		free(current->name);
 	current->name = NULL;
+
 	if (current->next != NULL)
 		unpopulate_column(current->next);
 	free(current);
