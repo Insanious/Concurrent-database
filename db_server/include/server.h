@@ -62,7 +62,7 @@ void server_listen(server_t *server);
 void server_destroy(server_t *server);
 void server_init(server_t *server);
 
-void daemonize_server(char *log_file);
+void daemonize_server();
 char *get_ip_from_socket_fd(int fd);
 
 #endif

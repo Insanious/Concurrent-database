@@ -1,10 +1,11 @@
 #!/bin/bash
 
 # make -s -j re
-make -s -j client
+make -j -s clean_client && make -j -s client
 
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:lib
-SLEEP=0.01
+SLEEP=0
+# SLEEP=0.01
 # ./db &
 sleep $SLEEP
 
@@ -50,15 +51,15 @@ echo -e "SELECT FROM table that exist:"
 echo -e "\n-------------------\n"
 sleep $SLEEP
 
-echo -e "DROP TABLE that exists:"
-./client "DROP TABLE students;"
-echo -e "\n-------------------\n"
-sleep $SLEEP
+# echo -e "DROP TABLE that exists:"
+# ./client "DROP TABLE students;"
+# echo -e "\n-------------------\n"
+# sleep $SLEEP
 
-echo -e "DROP TABLE that doesn't exist:"
-./client "DROP TABLE students;"
-echo -e "\n-------------------\n"
-sleep $SLEEP
+# echo -e "DROP TABLE that doesn't exist:"
+# ./client "DROP TABLE students;"
+# echo -e "\n-------------------\n"
+# sleep $SLEEP
 
 # killall db
 # ./client "SELECT * FROM students;"

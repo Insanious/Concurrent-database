@@ -52,7 +52,6 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 	printf("%s\n", message);
-	memset(message, '\0', 1024);
 
 	close(client_socket);
 

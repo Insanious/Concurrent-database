@@ -539,8 +539,13 @@ void insert_data(client_request *cli_req, char **client_msg) {
 		goto cleanup_and_exit;
 	}
 
-	if (!(data_file = fopen(data_file_name, "r+"))) {
+	if (access(data_file_name, F_OK) == -1) {
 		*client_msg = create_format_buffer("error: the file '%s' does not exist\n", data_file_name);
+		goto cleanup_and_exit;
+	}
+
+	if (!(data_file = fopen(data_file_name, "a+"))) {
+		*client_msg = create_format_buffer("error: the file '%s' could not be opened\n", data_file_name);
 		goto cleanup_and_exit;
 	}
 
@@ -625,10 +630,6 @@ void update_data(request_t *req, char **client_msg) {
 	// 4. do the change and ensure padding is present
 	// 5. write new row to the file at the start of the extracted row
 
-	// 1. assume the first row until primary keys has been implemented
-
-	// 2. extract row
-
 	FILE *meta = fopen(META_FILE, "r");
 	if (!meta) // if the database is empty, the table can't exist in the database
 	{
@@ -645,16 +646,13 @@ void update_data(request_t *req, char **client_msg) {
 	column_t *first = NULL;
 	int chars_in_row = 0;
 	primary_key primary;
-	// todo: check that req->where and req->where->name exists
 	primary.name = req->where->name;
 	primary.start = -1;
 	create_template_column(req->table_name, meta, &first, &chars_in_row, &primary);
 	if (primary.start == -1) {
-		// log_to_file("Error: no primary key found in update_data()\n");
-		perror("start == -1");
+		*client_msg = create_format_buffer("error: no primary key with id '%s' found in table '%s'\n", req->where->name, req->table_name);
 		return;
 	}
-	printf("name, start: %s, %d\n", primary.name, primary.start);
 
 	// did not find the table
 	if (first == NULL) {
@@ -668,169 +666,93 @@ void update_data(request_t *req, char **client_msg) {
 		return;
 	}
 
-	int nr_of_columns = 0;
-	column_t *current = first;
-	while (current) {
-		nr_of_columns++;
-		current = current->next;
-	}
-
-	int *column_offsets = calloc(nr_of_columns, sizeof(int));
-	get_column_offsets(first, &column_offsets);
-
-	FILE *data_file = fopen(final_name, "r");
+	FILE *data_file = fopen(final_name, "r+");
 	size_t data_descriptor = fileno(data_file);
 	struct flock data_lock;
 	memset(&data_lock, 0, sizeof(data_lock));
-	data_lock.l_type = F_RDLCK;
+	data_lock.l_type = F_WRLCK;
 
 	fcntl(data_descriptor, F_OFD_SETLKW, &data_lock);
 
-	/*
-		found primary key
-		found row that contains the correct primary key by using primary.start to quickly lseek through the file
-		when the row has been found:
-			go back to the beginning of the row by using the chars_in_row % ftell somehow
-			go through each column and check if it exists in the update columns
-			if column exists in the update:
-				write the updated column to the data file
-	*/
-	// int chars_after_primary_key = 0;
-	int sum = 0;
-	bool is_before_primary = true;
-	for (int i = 0; i < nr_of_columns; i++) {
-		if (is_before_primary && sum < primary.start) {
-			printf("sum: %d\n", sum);
-			sum += column_offsets[i];
-		} else if (sum == primary.start) {
-			printf("nani\n");
-			sum = CHARS_PER_INT; // add the length of the primary key, only INTs can be primary keys
-			is_before_primary = false;
-		} else if (!is_before_primary) {
-			printf("off: %d\n", column_offsets[i]);
-			sum += column_offsets[i];
-		}
-	}
-	sum++; // increment sum since each row also has a newline character at the end
-	printf("chars_after_primary_key: %d\n", sum);
-	return;
-
-	char ch = '\0';
+	int ch, count;
 	int primary_key_value = req->where->int_val; // this is the primary key we are looking for
-	int count = 0;
 	char primary_key_buffer[CHARS_PER_INT + 1];
 	bool found_key = false;
 
+	// move to the start of the primary key column
+	if (fseek(data_file, primary.start, SEEK_CUR) == -1) {
+		log_to_file("Error: Couldn't fseek() in update_data()\n");
+		return;
+	}
+	printf("start: %d\n", primary.start);
+	column_t *current = NULL;
 	while (!found_key) {
-		current = first;
-		while (current) {
-			fseek(data_file, primary.start, SEEK_CUR); // seek to the primary key
-
-			for (int i = 0; i < CHARS_PER_INT; i++) { // read primary key of row
-				if ((ch = fgetc(data_file)) == EOF) {
-					perror("eof");
-					return;
-				}
-
-				primary_key_buffer[count++] = (char)ch;
+		count = 0;
+		for (int i = 0; i < CHARS_PER_INT; i++) { // read primary key of row
+			if ((ch = fgetc(data_file)) == EOF) {
+				*client_msg = create_format_buffer("error: reached end-of-file before finding primary key\n");
+				return;
 			}
-			// found the primary key
-			if (primary_key_value == strtol(primary_key_buffer, NULL, 10)) {
-				// fseek to beginning of this row by moving back the (start of the primary key + the whole primary key)
-				fseek(data_file, -(primary.start + CHARS_PER_INT), SEEK_CUR);
-				found_key = true;
-				printf("found key: %ld\n", strtol(primary_key_buffer, NULL, 10));
-				break;
-			}
+			primary_key_buffer[count++] = (char)ch;
+		}
 
-			current = current->next;
+		if (primary_key_value == strtol(primary_key_buffer, NULL, 10)) { // found the primary key
+			found_key = true;
+			fseek(data_file, -primary.start, SEEK_CUR); // revert the primary_key
+		}
+		fseek(data_file, -CHARS_PER_INT, SEEK_CUR); // revert the fgetc
+
+		if (!found_key) {
+			if (fseek(data_file, chars_in_row, SEEK_CUR) == -1) { // move to next row
+				log_to_file("Error: Couldn't fseek() in update_data()\n");
+				return;
+			}
 		}
 	}
 
-	// iterate over all the columns and check if the current column matches any of the columns we are looking for
 	char *integer_val = NULL;
-	column_t *update_current = NULL;
+	column_t *update_current = req->columns;
 	current = first;
-	while (current) {
-		update_current = req->columns;
-		while (update_current) {
-			if (strcmp(current->name, update_current->name) == 0) { // found a matching column
-				if (current->data_type != update_current->data_type) {
-					perror("type mismatch");
-					return;
-				}
+	int seek_len = 0;
+	// iterate over all the columns and check if the current column matches any of the columns we are looking for
+	while (update_current) {
+		seek_len = (current->data_type == DT_INT) ? 10 : current->char_size;
 
-				if (current->data_type == DT_INT) {
-					if (integer_val == NULL) // allocate memory only once
-						integer_val = (char *)malloc(CHARS_PER_INT);
-					memset(integer_val, 0, CHARS_PER_INT); // zero-set integer
+		if (strcmp(current->name, update_current->name) == 0) { // found a matching column
+			if (current->data_type != update_current->data_type) {
+				*client_msg = create_format_buffer("error: found correct identifier but they were of different types\n");
+				return;
+			}
 
-					// snprintf(integer_val, CHARS_PER_INT, "%0*d", CHARS_PER_INT, input_column->int_val);
-					for (int i = 0; i < CHARS_PER_INT; i++)
-						fputc((char)integer_val[i], data_file);
-				}
+			if (current->data_type == DT_INT) {
+				// allocate memory only once
+				// we allocate memory here only if we find a matching column, otherwise we don't need to allocate memory
+				if (integer_val == NULL) // allocate memory only once
+					integer_val = (char *)malloc(CHARS_PER_INT + 1);
+				memset(integer_val, 0, CHARS_PER_INT + 1);												  // zero-set integer
+				snprintf(integer_val, CHARS_PER_INT + 1, "%0*d", CHARS_PER_INT, update_current->int_val); // zero-pad the int
 
-				// int len = (current->type == DT_INT) ? 10 : current->char_size;
-				// for (int i = 0; i < len; i++) {
-				// 	fputc(data_file, update_current[i]);
+				for (int i = 0; i < CHARS_PER_INT; i++)
+					fputc((char)integer_val[i], data_file); // write to file
+
+				update_current = update_current->next; // increment the update columns
+				seek_len = 0;						   // to revert the fputc
 			}
 		}
+		// TODO:
+		// this fseek() can go out of bounds in the case when we have more columns in the update request ...
+		// ... but we have no more columns in the file
+
+		// this can be accounted for if we check the request names against the table names beforehand
+
+		fseek(data_file, seek_len, SEEK_CUR); // move to the next column
+
+		current = current->next;
 	}
+
+	if (integer_val)
+		free(integer_val);
 }
-
-// int i, count, ch, index_of_row;
-// bool found_key = false;
-// int primary_key = 2;
-// char int_buffer[CHARS_PER_INT + 1];
-//
-// while (!found_key) {
-// 	column_t *current = first;
-//
-// 	while (current) {
-// 		index_of_row = 0;
-// 		for (i = 0; i < primary_key_start; i++, index_of_row++) // traverse the row to the primary_key_start
-// 			if ((ch = fgetc(data_file)) == EOF)
-// 				goto eof_error;
-//
-// 		count = 0;
-// 		// zero-set buffer, this also makes sure the string is null-terminated
-// 		memset(int_buffer, '\0', CHARS_PER_INT);
-//
-// 		for (i = 0; i < CHARS_PER_INT; i++, index_of_row++) { // read primary key of row
-// 			if ((ch = fgetc(data_file)) == EOF)
-// 				goto eof_error;
-//
-// 			int_buffer[count++] = (char)ch;
-// 		}
-//
-// 		if (primary_key == strtol(int_buffer, NULL, 10)) {	 // matches the primary key
-// 			lseek(data_descriptor, -index_of_row, SEEK_CUR); // lseek to beginning of this row
-// 			found_key = true;
-// 			printf("found key: %ld\n", strtol(int_buffer, NULL, 10));
-// 			break;
-// 		}
-//
-// 		for (i = index_of_row; i < chars_in_row; i++) // traverse the rest of the row
-// 			if ((ch = fgetc(data_file)) == EOF)
-// 				goto eof_error;
-// 	}
-// }
-//
-// printf("where: %s\n", req->where->name);
-// column_t *temp = req->columns;
-// while (temp) {
-// 	printf("name: %s\n", temp->name);
-// 	printf("char_val: %s\n", temp->char_val);
-// 	temp = temp->next;
-// }
-
-// ret_val->msg = create_format_buffer("successfully updated row\n");
-// ret_val->success = true;
-// return;
-
-// eof_error:
-// 	ret_val->msg = create_format_buffer("error: couldn't find row with primary key %d\n", primary_key);
-// }
 
 int column_to_buffer(column_t *table_column, column_t *input_column,
 					 dynamicstr *output_buffer, char **ret_msg) {
@@ -968,13 +890,20 @@ void create_template_column(char *name, FILE *meta, column_t **first, int *chars
 		// if the column is a VARCHAR, we need to extract the number of bytes
 		// this means that if the column->char_size is set, it is a VARCHAR,
 		// otherwise it's an INT
+		// for (int i = 0; i < strlen(token); i++)
+		// 	printf("c: %d\n", (int)token[i]);
+		// printf("tok: %s\n", token = strtok(0, COL_DELIM));
+		// if (strcmp(token, "\n") == 0) {
+		// 	printf("break\n");
+		// 	break;
+		// }
 		token = strtok(0, COL_DELIM);
-		if (strcmp(token, "INT") != 0) {
-			sscanf(token, "%*[^0123456789]%d", &current->char_size); // extract number between paranthesis
-			*chars_in_row += current->char_size;
+		if (token[0] == 'I') {
+			*chars_in_row += CHARS_PER_INT; // chars in an INT
 			current->data_type = DT_INT;
 		} else {
-			*chars_in_row += CHARS_PER_INT; // chars in an INT
+			sscanf(token, "%*[^0123456789]%d", &current->char_size); // extract number between paranthesis
+			*chars_in_row += current->char_size;
 			current->data_type = DT_VARCHAR;
 		}
 
