@@ -520,11 +520,8 @@ void insert_data(request_t *req, return_value *ret_val) {
     strcat(data_file_name, table.name);
     strcat(data_file_name, DATA_FILE_ENDING);
 
-    printf("This is the filename: %s. This is the file size: %ld\n",
-           data_file_name, strlen(data_file_name));
-
     FILE *meta = fopen(META_FILE, "r");
-    FILE *data_file = fopen(data_file_name, "a");
+    FILE *data_file = fopen(data_file_name, "a+");
 
     int meta_descriptor = fileno(meta);
     int data_file_descriptor = fileno(data_file);
@@ -536,11 +533,13 @@ void insert_data(request_t *req, return_value *ret_val) {
     memset(&data_file_lock, 0, sizeof(data_file_lock));
 
     data_file_lock.l_type = F_WRLCK;
-    meta_file_lock.l_type = F_WRLCK;
+    meta_file_lock.l_type = F_RDLCK;
 
+    perror("Error\n");
     fcntl(meta_descriptor, F_OFD_SETLKW, &meta_file_lock);
     fcntl(data_file_descriptor, F_OFD_SETLKW, &data_file_lock);
 
+    perror("Error\n");
     // Get information from table, how many bytes is each column?
     // Make sure that excess space is filled with null characters
     // Check how INSERT fills up the request_t structure
@@ -570,11 +569,37 @@ void insert_data(request_t *req, return_value *ret_val) {
 
     column_t *first = (column_t *)malloc(sizeof(column_t));
     first->next = NULL;
-    populate_column(first, token);
+    first->is_primary_key = 0;
+    is_primary_key *is_pk = (is_primary_key *)malloc(sizeof(is_primary_key));
+    is_pk->found = false;
+    is_pk->size_to_pk = 0;
+    is_pk->total_row_size = 0;
+    int current_pk = -1;
+    populate_column(first, token, is_pk);
+
+    if (is_pk->found) {
+	// total_size - primary_key size
+	char *int_buffer = (char *)malloc(11);
+	memset(int_buffer, 0, 11);
+	int offset_to_pk = is_pk->total_row_size - is_pk->size_to_pk;
+	fseek(data_file, 0, SEEK_END);
+	int file_size = ftell(data_file);
+	fseek(data_file, -offset_to_pk, SEEK_END);
+	if (file_size > 0) {
+	    current_pk = (int)strtol(int_buffer, NULL, 10) + 1;
+	    printf("read: %d\n", total_read);
+	} else {
+	    current_pk = 1;
+	};
+	printf("Current_pk: %d\n", current_pk);
+	free(int_buffer);
+	int_buffer = NULL;
+	// read 10 bytes
+    }
 
     dynamicstr *output_buffer;
     string_init(&output_buffer);
-    if (!(column_to_buffer(first, table.columns, output_buffer, &ret_val->msg) <
+    if (!(column_to_buffer(first, table.columns, output_buffer, current_pk, &ret_val->msg) <
           0)) {
 	if (fprintf(data_file, "%s\n", output_buffer->buffer) < 0)
 	    ;
@@ -591,7 +616,18 @@ void insert_data(request_t *req, return_value *ret_val) {
 }
 
 int column_to_buffer(column_t *table_column, column_t *input_column,
-                     dynamicstr *output_buffer, char **ret_msg) {
+                     dynamicstr *output_buffer, int primary_key, char **ret_msg) {
+    if (table_column->is_primary_key) {
+	char *integer_val = (char *)malloc(11);
+	memset(integer_val, 0, 11);
+	snprintf(integer_val, 10 + 1, "%0*d", 10, primary_key);
+
+	string_set(&output_buffer, "%s", integer_val);
+	table_column = table_column->next;
+	if (input_column == NULL) {
+	    return 0;
+	}
+    }
     if (table_column->data_type != input_column->data_type) {
 	// sanitation error
 	*ret_msg = create_format_buffer(
@@ -613,9 +649,8 @@ int column_to_buffer(column_t *table_column, column_t *input_column,
 	// Remove the ' '
 	if ((input_str[0] == '\'') &&
 	    (input_str[strlen(input_str) - 1] == '\'')) {
-	    memmove(input_str + 0, input_str + 1, strlen(input_str));
-	    memmove(input_str + strlen(input_str) - 1,
-	            input_str + strlen(input_str), strlen(input_str));
+	    input_str++;
+	    input_str[strlen(input_str) - 1] = 0;
 	}
 	if (table_column->char_size < strlen(input_str)) {
 	    // Input value is to large
@@ -637,8 +672,11 @@ int column_to_buffer(column_t *table_column, column_t *input_column,
     }
 
     if ((table_column->next != NULL) && (input_column->next != NULL)) {
+	// if primary key
+	// insert primary key value here
+	// then proceed
 	if (column_to_buffer(table_column->next, input_column->next,
-	                     output_buffer, ret_msg) < 0)
+	                     output_buffer, primary_key, ret_msg) < 0)
 	    return -1;
     } else if ((table_column->next == NULL) && (input_column->next == NULL)) {
 	// time to return
@@ -651,7 +689,7 @@ int column_to_buffer(column_t *table_column, column_t *input_column,
     return 0;
 }
 
-int populate_column(column_t *current, char *table_row) {
+int populate_column(column_t *current, char *table_row, is_primary_key *is_pk) {
     // Hardcoded length, pretty extreme.
     char column_name[50];
     char column_type[50];
@@ -660,20 +698,31 @@ int populate_column(column_t *current, char *table_row) {
 
     sscanf(table_row, "%s%*[ ]%[^,']", column_name, column_type);
     current->name = (char *)malloc(strlen(column_name) + 1);
+    if (column_name[0] == '1') {
+	current->is_primary_key = 1;
+	is_pk->found = true;
+	is_pk->size_to_pk = is_pk->total_row_size;
+    }
     strcpy(current->name, column_name);
 
     if (column_type[0] == 'I') {
 	current->data_type = DT_INT;
+	is_pk->total_row_size += 10;
     } else {
 	current->data_type = DT_VARCHAR;
 	sscanf(column_type, "%*[^0123456789]%d", &current->char_size);
+	is_pk->total_row_size += current->char_size;
     }
     table_row = strtok(NULL, ",");
     if (table_row != NULL) {
 	column_t *next = (column_t *)malloc(sizeof(column_t));
 	next->next = NULL;
-	populate_column(next, table_row);
+	next->is_primary_key = 0;
+	populate_column(next, table_row, is_pk);
 	current->next = next;
+    } else {
+	// account for the new line
+	is_pk->total_row_size += 1;
     }
     return 0;
 }

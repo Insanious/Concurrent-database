@@ -26,7 +26,7 @@ void string_set(dynamicstr **destination, char *format, ...) {
 
     sizediff = (*destination)->size - len;
     (*destination)->buffer =
-        realloc((*destination)->buffer, (*destination)->size);
+        realloc((*destination)->buffer, (*destination)->size + 1);
 
     if ((*destination)->buffer == NULL) {
 	perror("Unable to realloc() ptr!");

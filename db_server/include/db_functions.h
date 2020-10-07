@@ -41,6 +41,13 @@ struct return_value {
     bool success;
 };
 
+typedef struct is_primary_key is_primary_key;
+struct is_primary_key {
+    int total_row_size;
+    int size_to_pk;
+    bool found;
+};
+
 void execute_request(void *arg);
 
 void create_table(client_request *cli_req, return_value *ret_val);
@@ -59,8 +66,8 @@ void log_to_file(char *file_name, const char *format, ...);
 bool is_valid_varchar(column_t *col);
 
 int column_to_buffer(column_t *table_column, column_t *input_column,
-                     dynamicstr *output_buffer, char **ret_msg);
-int populate_column(column_t *current, char *table_row);
+                     dynamicstr *output_buffer, int primary_key, char **ret_msg);
+int populate_column(column_t *current, char *table_row, is_primary_key *is_pk);
 int unpopulate_column(column_t *current);
 
 #endif
