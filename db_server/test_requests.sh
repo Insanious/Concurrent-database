@@ -40,6 +40,16 @@ echo -e "INSERT INTO table that exist:"
 echo -e "\n-------------------\n"
 sleep $SLEEP
 
+echo -e "SELECT FROM table that doesn't exist:"
+./client "SELECT * FROM teachers;"
+echo -e "\n-------------------\n"
+sleep $SLEEP
+
+echo -e "SELECT FROM table that exist:"
+./client "SELECT * FROM students;"
+echo -e "\n-------------------\n"
+sleep $SLEEP
+
 echo -e "DROP TABLE that exists:"
 ./client "DROP TABLE students;"
 echo -e "\n-------------------\n"

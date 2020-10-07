@@ -31,28 +31,28 @@
 
 typedef struct server server_t;
 struct server {
-    queue_t *request_queue;
-    size_t queue_size;
-    char *log_file;
+	queue_t *request_queue;
+	size_t queue_size;
+	char *log_file;
 
-    thread_pool_t *pool;
-    pthread_mutex_t enqueue_lock;
-    sem_t empty_sem;
-    sem_t full_sem;
+	thread_pool_t *pool;
+	pthread_mutex_t enqueue_lock;
+	sem_t empty_sem;
+	sem_t full_sem;
 
-    size_t socket;
-    size_t port;
-    struct sockaddr_in address;
-    struct sockaddr_storage storage;
-    socklen_t address_size;
-    fd_set current_sockets;
+	size_t socket;
+	size_t port;
+	struct sockaddr_in address;
+	struct sockaddr_storage storage;
+	socklen_t address_size;
+	fd_set current_sockets;
 };
 
 typedef struct connection_args connection_args;
 struct connection_args {
-    server_t *server;
-    size_t socket;
-    char *msg;
+	server_t *server;
+	size_t socket;
+	char *msg;
 };
 
 void assign_work(void *arg);

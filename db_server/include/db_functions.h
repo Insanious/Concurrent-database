@@ -37,6 +37,12 @@
 
 extern char *log_file;
 
+typedef struct primary_key primary_key;
+struct primary_key {
+	char *name;
+	int start;
+};
+
 void execute_request(void *arg);
 
 void create_table(client_request *cli_req, char **client_msg);
@@ -49,8 +55,8 @@ bool table_exists(char *name, FILE *meta);
 void quit_connection(client_request *cli_req);
 int create_data_file(char *name);
 void insert_data(client_request *cli_req, char **client_msg);
-void update_data(request_t *req, return_value *ret_val);
-void create_template_column(char *name, FILE *meta, column_t **first, int *chars_in_row);
+void update_data(request_t *req, char **client_msg);
+void create_template_column(char *name, FILE *meta, column_t **first, int *chars_in_row, primary_key *primary);
 int create_full_data_path_from_name(char *name, char **full_path);
 void log_to_file(const char *format, ...);
 
@@ -59,5 +65,8 @@ bool is_valid_varchar(column_t *col);
 int column_to_buffer(column_t *table_column, column_t *input_column, dynamicstr *output_buffer, char **client_msg);
 int populate_column(column_t *current, char *table_row);
 int unpopulate_column(column_t *current);
+bool file_is_empty(FILE *file);
+
+void get_column_offsets(column_t *first, int **offsets);
 
 #endif

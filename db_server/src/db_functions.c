@@ -27,9 +27,6 @@ static char *create_format_buffer(const char *format, ...) {
 
 void execute_request(void *arg) {
 	client_request *cli_req = ((client_request *)arg);
-	// server_t *server = ((server_t *)cli_req->server);
-	// return_value ret_val;
-	// ret_val.msg = NULL;
 	char *client_msg = NULL;
 
 	if (cli_req->error) {
@@ -67,7 +64,7 @@ void execute_request(void *arg) {
 		printf("RT_DELETE\n");
 		break;
 	case RT_UPDATE:
-		printf("RT_UPDATE\n");
+		update_data(cli_req->request, &client_msg);
 		break;
 	}
 
@@ -111,7 +108,6 @@ void create_table(client_request *cli_req, char **client_msg) {
 		col = col->next;
 	}
 
-	// server_t *server = ((server_t *)cli_req->server);
 	add_table(&table, meta);
 	if (create_data_file(table.name) < 0) {
 		*client_msg = create_format_buffer("error: could not create data file for table '%s'\n", table.name);
@@ -185,7 +181,6 @@ void print_schema(char *name, char **client_msg) {
 		return;
 	}
 
-	// found the table
 	size_t buffer_length = START_LENGTH;
 	char *buffer = (char *)calloc(buffer_length * sizeof(char), sizeof(char));
 
@@ -207,19 +202,67 @@ void print_schema(char *name, char **client_msg) {
 		strcat(buffer, "\n");
 	}
 
-	// remove last newline
-	buffer[strlen(buffer) - 1] = '\0';
-
-	*client_msg = buffer;
-	free(line); // free the getline allocated string
+	free(line);
 	fclose(meta);
-	return;
-
-	// free(line); // free the getline allocated string
-	// fclose(meta);
-	//
-	// *client_msg = create_format_buffer("error: table '%s' does not exists\n", name);
+	*client_msg = buffer;
 }
+
+// void print_schema(char *name, char **client_msg) {
+// 	FILE *meta = fopen(META_FILE, "r");
+// 	if (!meta) // if the database is empty, the table can't exist in the database
+// 	{
+// 		*client_msg = create_format_buffer("error: '%s' does not exist\n", META_FILE);
+// 		return;
+// 	}
+//
+// 	char *token = NULL;
+// 	char *line = NULL;
+// 	size_t nr_of_chars = 0;
+//
+// 	while (getline(&line, &nr_of_chars, meta) != -1) {
+// 		token = strtok(line, COL_DELIM);
+// 		if (strcmp(token, name) != 0) {
+// 			free(line); // free the getline allocated string
+// 			line = NULL;
+// 			continue;
+// 		}
+//
+// 		// found the table
+// 		size_t buffer_length = START_LENGTH;
+// 		char *buffer = (char *)malloc(buffer_length * sizeof(char));
+//
+// 		// print all the columns of the table
+// 		while ((token = strtok(0, TYPE_DELIM))) {
+// 			while (strlen(token) + 2 > buffer_length - strlen(buffer)) // +2 for the tabs
+// 				buffer_length = realloc_str(&buffer, buffer_length);
+//
+// 			strcat(buffer, token);
+// 			strcat(buffer, "\t");
+// 			if (strlen(token) < 8) // format output for smaller names
+// 				strcat(buffer, "\t");
+//
+// 			token = strtok(0, COL_DELIM);
+// 			while (strlen(token) + 1 > buffer_length - strlen(buffer)) // +1 for the newline
+// 				buffer_length = realloc_str(&buffer, buffer_length);
+//
+// 			strcat(buffer, token);
+// 			strcat(buffer, "\n");
+// 		}
+//
+// 		// remove last newline
+// 		buffer[strlen(buffer) - 1] = '\0';
+//
+// 		*client_msg = buffer;
+// 		free(line); // free the getline allocated string
+// 		fclose(meta);
+// 		return;
+// 	}
+//
+// 	free(line); // free the getline allocated string
+// 	fclose(meta);
+//
+// 	*client_msg = create_format_buffer("error: table '%s' does not exists\n", name);
+// }
 
 void add_table(table_t *table, FILE *meta) {
 	if (!(meta = freopen(NULL, "a", meta))) {
@@ -273,7 +316,7 @@ void select_table(client_request *cli_req, char **client_msg) {
 
 	column_t *first = NULL;
 	int chars_in_row = 0;
-	create_template_column(cli_req->request->table_name, meta, &first, &chars_in_row);
+	create_template_column(cli_req->request->table_name, meta, &first, &chars_in_row, NULL);
 	fclose(meta);
 
 	// did not find the table
@@ -366,7 +409,6 @@ void select_table(client_request *cli_req, char **client_msg) {
 cleanup_and_exit:
 	if (first)
 		unpopulate_column(first);
-	fclose(meta);
 }
 
 void drop_table(client_request *cli_req, char **client_msg) {
@@ -576,7 +618,7 @@ cleanup_and_exit:
 		unpopulate_column(first);
 }
 
-void update_data(request_t *req, return_value *ret_val) {
+void update_data(request_t *req, char **client_msg) {
 	// 1. find row with primary key
 	// 2. extract row
 	// 3. find the column/columns to change
@@ -590,32 +632,51 @@ void update_data(request_t *req, return_value *ret_val) {
 	FILE *meta = fopen(META_FILE, "r");
 	if (!meta) // if the database is empty, the table can't exist in the database
 	{
-		ret_val->msg = create_format_buffer("error: %s does not exist\n", META_FILE);
+		*client_msg = create_format_buffer("error: %s does not exist\n", META_FILE);
+		return;
+	}
+
+	if (file_is_empty(meta)) {
+		*client_msg = create_format_buffer("error: %s is empty\n", META_FILE);
+		fclose(meta);
 		return;
 	}
 
 	column_t *first = NULL;
 	int chars_in_row = 0;
-	create_template_column(req->table_name, meta, &first, &chars_in_row);
-	column_t *current = first;
-	while (current->next) { // create_template_column() gives one tab char per column, we don't want that here
-		chars_in_row--;
-		current = current->next;
+	primary_key primary;
+	// todo: check that req->where and req->where->name exists
+	primary.name = req->where->name;
+	primary.start = -1;
+	create_template_column(req->table_name, meta, &first, &chars_in_row, &primary);
+	if (primary.start == -1) {
+		// log_to_file("Error: no primary key found in update_data()\n");
+		perror("start == -1");
+		return;
 	}
-
-	// chars_in_row -= 2; // to account for the tabs
+	printf("name, start: %s, %d\n", primary.name, primary.start);
 
 	// did not find the table
 	if (first == NULL) {
-		ret_val->msg = create_format_buffer("error: '%s' does not exist\n", req->table_name);
+		*client_msg = create_format_buffer("error: '%s' does not exist\n", req->table_name);
 		return;
 	}
 
 	char *final_name = NULL;
 	if (create_full_data_path_from_name(req->table_name, &final_name) < 0) {
-		ret_val->msg = create_format_buffer("error: server ran out of memory\n");
+		*client_msg = create_format_buffer("error: server ran out of memory\n");
 		return;
 	}
+
+	int nr_of_columns = 0;
+	column_t *current = first;
+	while (current) {
+		nr_of_columns++;
+		current = current->next;
+	}
+
+	int *column_offsets = calloc(nr_of_columns, sizeof(int));
+	get_column_offsets(first, &column_offsets);
 
 	FILE *data_file = fopen(final_name, "r");
 	size_t data_descriptor = fileno(data_file);
@@ -625,64 +686,158 @@ void update_data(request_t *req, return_value *ret_val) {
 
 	fcntl(data_descriptor, F_OFD_SETLKW, &data_lock);
 
-	int i, count, ch, index_of_row;
+	/*
+		found primary key
+		found row that contains the correct primary key by using primary.start to quickly lseek through the file
+		when the row has been found:
+			go back to the beginning of the row by using the chars_in_row % ftell somehow
+			go through each column and check if it exists in the update columns
+			if column exists in the update:
+				write the updated column to the data file
+	*/
+	// int chars_after_primary_key = 0;
+	int sum = 0;
+	bool is_before_primary = true;
+	for (int i = 0; i < nr_of_columns; i++) {
+		if (is_before_primary && sum < primary.start) {
+			printf("sum: %d\n", sum);
+			sum += column_offsets[i];
+		} else if (sum == primary.start) {
+			printf("nani\n");
+			sum = CHARS_PER_INT; // add the length of the primary key, only INTs can be primary keys
+			is_before_primary = false;
+		} else if (!is_before_primary) {
+			printf("off: %d\n", column_offsets[i]);
+			sum += column_offsets[i];
+		}
+	}
+	sum++; // increment sum since each row also has a newline character at the end
+	printf("chars_after_primary_key: %d\n", sum);
+	return;
+
+	char ch = '\0';
+	int primary_key_value = req->where->int_val; // this is the primary key we are looking for
+	int count = 0;
+	char primary_key_buffer[CHARS_PER_INT + 1];
 	bool found_key = false;
-	int primary_key = 2;
-	char int_buffer[CHARS_PER_INT + 1];
-	int primary_key_start = 0;
 
 	while (!found_key) {
 		current = first;
-
 		while (current) {
-			index_of_row = 0;
-			for (i = 0; i < primary_key_start; i++, index_of_row++) // traverse the row to the primary_key_start
-				if ((ch = fgetc(data_file)) == EOF)
-					goto eof_error;
+			fseek(data_file, primary.start, SEEK_CUR); // seek to the primary key
 
-			count = 0;
-			// zero-set buffer, this also makes sure the string is null-terminated
-			memset(int_buffer, '\0', CHARS_PER_INT);
+			for (int i = 0; i < CHARS_PER_INT; i++) { // read primary key of row
+				if ((ch = fgetc(data_file)) == EOF) {
+					perror("eof");
+					return;
+				}
 
-			for (i = 0; i < CHARS_PER_INT; i++, index_of_row++) { // read primary key of row
-				if ((ch = fgetc(data_file)) == EOF)
-					goto eof_error;
-
-				int_buffer[count++] = (char)ch;
+				primary_key_buffer[count++] = (char)ch;
 			}
-
-			if (primary_key == strtol(int_buffer, NULL, 10)) {	 // matches the primary key
-				lseek(data_descriptor, -index_of_row, SEEK_CUR); // lseek to beginning of this row
+			// found the primary key
+			if (primary_key_value == strtol(primary_key_buffer, NULL, 10)) {
+				// fseek to beginning of this row by moving back the (start of the primary key + the whole primary key)
+				fseek(data_file, -(primary.start + CHARS_PER_INT), SEEK_CUR);
 				found_key = true;
-				printf("found key: %ld\n", strtol(int_buffer, NULL, 10));
+				printf("found key: %ld\n", strtol(primary_key_buffer, NULL, 10));
 				break;
 			}
 
-			for (i = index_of_row; i < chars_in_row; i++) // traverse the rest of the row
-				if ((ch = fgetc(data_file)) == EOF)
-					goto eof_error;
+			current = current->next;
 		}
 	}
 
-	printf("where: %s\n", req->where->name);
-	column_t *temp = req->columns;
-	while (temp) {
-		printf("name: %s\n", temp->name);
-		printf("char_val: %s\n", temp->char_val);
-		temp = temp->next;
+	// iterate over all the columns and check if the current column matches any of the columns we are looking for
+	char *integer_val = NULL;
+	column_t *update_current = NULL;
+	current = first;
+	while (current) {
+		update_current = req->columns;
+		while (update_current) {
+			if (strcmp(current->name, update_current->name) == 0) { // found a matching column
+				if (current->data_type != update_current->data_type) {
+					perror("type mismatch");
+					return;
+				}
+
+				if (current->data_type == DT_INT) {
+					if (integer_val == NULL) // allocate memory only once
+						integer_val = (char *)malloc(CHARS_PER_INT);
+					memset(integer_val, 0, CHARS_PER_INT); // zero-set integer
+
+					// snprintf(integer_val, CHARS_PER_INT, "%0*d", CHARS_PER_INT, input_column->int_val);
+					for (int i = 0; i < CHARS_PER_INT; i++)
+						fputc((char)integer_val[i], data_file);
+				}
+
+				// int len = (current->type == DT_INT) ? 10 : current->char_size;
+				// for (int i = 0; i < len; i++) {
+				// 	fputc(data_file, update_current[i]);
+			}
+		}
 	}
-
-	ret_val->msg = create_format_buffer("successfully updated row\n");
-	ret_val->success = true;
-	return;
-
-eof_error:
-	ret_val->msg = create_format_buffer("error: couldn't find row with primary key %d\n", primary_key);
 }
 
-int column_to_buffer(column_t *table_column, column_t *input_column, dynamicstr *output_buffer, char **client_msg) {
-	if (table_column->data_type != input_column->data_type) { // sanitation error
-		*client_msg = create_format_buffer("syntax error, value(s) are of wrong data type.\n");
+// int i, count, ch, index_of_row;
+// bool found_key = false;
+// int primary_key = 2;
+// char int_buffer[CHARS_PER_INT + 1];
+//
+// while (!found_key) {
+// 	column_t *current = first;
+//
+// 	while (current) {
+// 		index_of_row = 0;
+// 		for (i = 0; i < primary_key_start; i++, index_of_row++) // traverse the row to the primary_key_start
+// 			if ((ch = fgetc(data_file)) == EOF)
+// 				goto eof_error;
+//
+// 		count = 0;
+// 		// zero-set buffer, this also makes sure the string is null-terminated
+// 		memset(int_buffer, '\0', CHARS_PER_INT);
+//
+// 		for (i = 0; i < CHARS_PER_INT; i++, index_of_row++) { // read primary key of row
+// 			if ((ch = fgetc(data_file)) == EOF)
+// 				goto eof_error;
+//
+// 			int_buffer[count++] = (char)ch;
+// 		}
+//
+// 		if (primary_key == strtol(int_buffer, NULL, 10)) {	 // matches the primary key
+// 			lseek(data_descriptor, -index_of_row, SEEK_CUR); // lseek to beginning of this row
+// 			found_key = true;
+// 			printf("found key: %ld\n", strtol(int_buffer, NULL, 10));
+// 			break;
+// 		}
+//
+// 		for (i = index_of_row; i < chars_in_row; i++) // traverse the rest of the row
+// 			if ((ch = fgetc(data_file)) == EOF)
+// 				goto eof_error;
+// 	}
+// }
+//
+// printf("where: %s\n", req->where->name);
+// column_t *temp = req->columns;
+// while (temp) {
+// 	printf("name: %s\n", temp->name);
+// 	printf("char_val: %s\n", temp->char_val);
+// 	temp = temp->next;
+// }
+
+// ret_val->msg = create_format_buffer("successfully updated row\n");
+// ret_val->success = true;
+// return;
+
+// eof_error:
+// 	ret_val->msg = create_format_buffer("error: couldn't find row with primary key %d\n", primary_key);
+// }
+
+int column_to_buffer(column_t *table_column, column_t *input_column,
+					 dynamicstr *output_buffer, char **ret_msg) {
+	if (table_column->data_type != input_column->data_type) {
+		// sanitation error
+		*ret_msg = create_format_buffer(
+			"syntax error, value(s) are of wrong data type.\n");
 		return -1;
 	}
 	if (input_column->data_type == 0) {
@@ -703,7 +858,7 @@ int column_to_buffer(column_t *table_column, column_t *input_column, dynamicstr 
 		}
 
 		if (table_column->char_size < strlen(input_str)) { // Input value is to large
-			*client_msg = create_format_buffer("syntax error, VARCHAR value \"%s\" is to big.\n", input_column->char_val);
+			*ret_msg = create_format_buffer("syntax error, VARCHAR value \"%s\" is to big.\n", input_column->char_val);
 			return -1;
 		}
 
@@ -720,15 +875,17 @@ int column_to_buffer(column_t *table_column, column_t *input_column, dynamicstr 
 	}
 
 	if ((table_column->next != NULL) && (input_column->next != NULL)) {
-		if (column_to_buffer(table_column->next, input_column->next, output_buffer, client_msg) < 0)
+		if (column_to_buffer(table_column->next, input_column->next, output_buffer, ret_msg) < 0)
 			return -1;
 	} else if ((table_column->next == NULL) && (input_column->next == NULL)) { // time to return
 		return 0;
 	} else {
 		// This means that the input_columns are either short or to many
-		*client_msg = create_format_buffer("syntax error, to many values.\n");
+		*ret_msg = create_format_buffer("syntax error, to many values.\n");
 		return -1;
 	}
+
+	return 0;
 }
 
 int populate_column(column_t *current, char *table_row) {
@@ -758,7 +915,7 @@ int populate_column(column_t *current, char *table_row) {
 	return 0;
 }
 
-void create_template_column(char *name, FILE *meta, column_t **first, int *chars_in_row) {
+void create_template_column(char *name, FILE *meta, column_t **first, int *chars_in_row, primary_key *primary) {
 	char *token = NULL;
 	char *line = NULL;
 	size_t nr_of_chars = 0;
@@ -777,7 +934,7 @@ void create_template_column(char *name, FILE *meta, column_t **first, int *chars
 		return;
 
 	// found the table
-	*chars_in_row = 1; // start at 1 to account for the newline that is after each row
+	*chars_in_row = 0;
 	column_t *current = calloc(1, sizeof(column_t));
 
 	while ((token = strtok(0, TYPE_DELIM))) {
@@ -789,11 +946,25 @@ void create_template_column(char *name, FILE *meta, column_t **first, int *chars
 		else
 			*first = current;
 
+		if (primary != NULL && primary->start == -1 && token[0] == '1') { // check for primary key if caller actually wants it
+			int len = strlen(token);
+			char *cpy = calloc(len, sizeof(char));
+			for (int i = 0; i < len; i++)
+				cpy[i] = token[i + 1]; // copy each char except the first since the '1' is not part of the name
+
+			if (strcmp(cpy, primary->name) == 0)
+				primary->start = *chars_in_row;
+			// else { // primary key exists, but it was the wrong name
+			// 	log_to_file("Error: expected primary key on column '%s' but got primary key on '%s'\n", primary->name, cpy);
+			// }
+		}
+
+		// extract column name
 		current->name = calloc(strlen(token) + 1, sizeof(char));
-		strcpy(current->name, token); // extract column name
+		strcpy(current->name, token);
 
 		// extract column type
-		// if the column is an INT, the size will be CHARS_PER_INT bytes
+		// if the column is an INT, the size will be 10 bytes
 		// if the column is a VARCHAR, we need to extract the number of bytes
 		// this means that if the column->char_size is set, it is a VARCHAR,
 		// otherwise it's an INT
@@ -801,11 +972,16 @@ void create_template_column(char *name, FILE *meta, column_t **first, int *chars
 		if (strcmp(token, "INT") != 0) {
 			sscanf(token, "%*[^0123456789]%d", &current->char_size); // extract number between paranthesis
 			*chars_in_row += current->char_size;
-		} else
+			current->data_type = DT_INT;
+		} else {
 			*chars_in_row += CHARS_PER_INT; // chars in an INT
+			current->data_type = DT_VARCHAR;
+		}
 
 		current->next = calloc(1, sizeof(column_t)); // allocate new memory for the next column
 	}
+	(*chars_in_row)++; // increment once to account for the newline that is after a row
+
 	// since we allocate new memeory at the end of the while loop, the last
 	// iteration will allocate memory unnecessarily, therefore we free it
 	free(current->next);
@@ -869,4 +1045,37 @@ int unpopulate_column(column_t *current) {
 	free(current);
 	current = NULL;
 	return 0;
+}
+
+bool file_is_empty(FILE *file) {
+	bool empty = false;
+	if (fseek(file, 0, SEEK_END) < 0) {
+		// log_to_file("Error: fseek() failed in file_is_empty()\n");
+		return false;
+	}
+
+	switch (ftell(file)) {
+	case 0:
+		empty = true;
+		break;
+	case -1:
+		// log_to_file("Error: fseek() failed in file_is_empty()\n");
+		break;
+	default:
+		break;
+	}
+
+	// set file cursor to the beginning
+	fseek(file, 0, SEEK_SET);
+
+	return empty;
+}
+
+void get_column_offsets(column_t *first, int **offsets) {
+	int count = 0;
+	column_t *current = first;
+	while (current) {
+		(*offsets)[count++] = (current->char_size == 0) ? 10 : current->char_size;
+		current = current->next;
+	}
 }
