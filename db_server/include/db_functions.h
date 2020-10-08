@@ -37,12 +37,19 @@
 
 extern char *log_file;
 
+typedef struct is_primary_key is_primary_key;
+struct is_primary_key {
+	int total_row_size;
+	int size_to_pk;
+	bool found;
+};
+
 void execute_request(void *arg);
 
 void create_table(client_request *cli_req, char **client_msg);
 void print_tables(char **client_msg);
 void print_schema(char *name, char **client_msg);
-void add_table(table_t *table, FILE *meta);
+int add_table(table_t *table, dynamicstr *output_buffer, FILE *meta, char **error_msg);
 void select_table(client_request *cli_req, char **client_msg);
 void drop_table(client_request *cli_req, char **client_msg);
 bool table_exists(char *name, FILE *meta);
@@ -55,8 +62,9 @@ void log_to_file(const char *format, ...);
 
 bool is_valid_varchar(column_t *col);
 
-int column_to_buffer(column_t *table_column, column_t *input_column, dynamicstr *output_buffer, char **client_msg);
-int populate_column(column_t *current, char *table_row);
+int column_to_buffer(column_t *table_column, column_t *input_column,
+					 dynamicstr *output_buffer, int primary_key, char **client_msg);
+int populate_column(column_t *current, char *table_row, is_primary_key *is_pk);
 int unpopulate_column(column_t *current);
 
 #endif

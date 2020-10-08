@@ -25,17 +25,29 @@ void string_set(dynamicstr **destination, char *format, ...) {
 		(*destination)->size += len;
 
 	sizediff = (*destination)->size - len;
-	(*destination)->buffer = realloc((*destination)->buffer, (*destination)->size);
+	(*destination)->buffer =
+		realloc((*destination)->buffer, (*destination)->size + 1);
 
 	if ((*destination)->buffer == NULL) {
 		perror("Unable to realloc() ptr!");
 	} else {
 		va_start(args, format);
-		// "+ sizediff" to append to the buffer
-		vsnprintf((*destination)->buffer + sizediff, len, format, args);
+		len = vsnprintf(NULL, 0, format, args) + 1;
 		va_end(args);
+
+		sizediff = (*destination)->size - len;
+		(*destination)->buffer = realloc((*destination)->buffer, (*destination)->size + 1);
+
+		if ((*destination)->buffer == NULL) {
+			perror("Unable to realloc() ptr!");
+		} else {
+			va_start(args, format);
+			// "+ sizediff" to append to the buffer
+			vsnprintf((*destination)->buffer + sizediff, len, format, args);
+			va_end(args);
+		}
+		return;
 	}
-	return;
 }
 
 void string_free(dynamicstr **target) {

@@ -111,19 +111,29 @@ void create_table(client_request *cli_req, char **client_msg) {
 		col = col->next;
 	}
 
-	// server_t *server = ((server_t *)cli_req->server);
-	add_table(&table, meta);
-	if (create_data_file(table.name) < 0) {
-		*client_msg = create_format_buffer("error: could not create data file for table '%s'\n", table.name);
+	dynamicstr *output_buffer;
+	string_init(&output_buffer);
+	if (add_table(&table, output_buffer, meta, client_msg) < 0) {
+		// Implicates that an error occured
+		string_free(&output_buffer);
 		fclose(meta);
 		return;
+	};
+
+	if (create_data_file(table.name) < 0) {
+		*client_msg = create_format_buffer("error: could not create data file for table '%s'\n", table.name);
+		string_free(&output_buffer);
+		fclose(meta);
+
+		if (fprintf(meta, "%s", output_buffer->buffer) < 0)
+			;
+
+		fclose(meta);
+		string_free(&output_buffer);
+		log_to_file("Connection %s created table '%s'\n", get_ip_from_socket_fd(cli_req->client_socket), table.name);
+
+		*client_msg = create_format_buffer("successfully created table '%s'\n", table.name);
 	}
-
-	fclose(meta);
-
-	log_to_file("Connection %s created table '%s'\n", get_ip_from_socket_fd(cli_req->client_socket), table.name);
-
-	*client_msg = create_format_buffer("successfully created table '%s'\n", table.name);
 }
 
 void print_tables(char **client_msg) {
@@ -221,38 +231,73 @@ void print_schema(char *name, char **client_msg) {
 	// *client_msg = create_format_buffer("error: table '%s' does not exists\n", name);
 }
 
-void add_table(table_t *table, FILE *meta) {
-	if (!(meta = freopen(NULL, "a", meta))) {
-		log_to_file("Error: Couldn't freopen() in add_table()\n");
-		return;
-	}
+int add_table(table_t *table, dynamicstr *output_buffer, FILE *meta, char **error_msg) {
+	// Issue: When using bytelocking two tables of the same name could occur.
+	// Solution: Lock the whole file, look for table name, if it doesn't exist
+	// add it, unlock the file.
 
-	int meta_descriptor = fileno(meta);
+	if (!(meta = freopen(NULL, "a", meta))) {
+		log_to_file(log_file, "Error: Couldn't freopen() in add_table()\n");
+		return -1;
+	}
 
 	struct flock lock;
 	memset(&lock, 0, sizeof(lock));
 	lock.l_type = F_WRLCK;
+	int meta_descriptor = fileno(meta);
 
 	fcntl(meta_descriptor, F_OFD_SETLKW, &lock);
 
 	fprintf(meta, "%s%s", table->name, COL_DELIM);
 
+	string_set(&output_buffer, "%s%s", table->name, COL_DELIM);
+
+	int primary_key_count = 0;
+
 	column_t *col = table->columns;
-	while (col->next) // loop while the column is not the last one
+	while (col->next && (primary_key_count <= 1)) // loop while the column is not the last one
 	{
 		// write each column to the file with the appropriate type format
-		if (col->data_type == DT_INT)
-			fprintf(meta, "%s%sINT%s", col->name, TYPE_DELIM, COL_DELIM);
-		else
-			fprintf(meta, "%s%sVARCHAR(%d)%s", col->name, TYPE_DELIM, col->char_size, COL_DELIM);
+		if (col->data_type == DT_INT) {
+			if (col->is_primary_key) {
+				string_set(&output_buffer, "1%s%sINT%s", col->name, TYPE_DELIM, COL_DELIM);
+				primary_key_count += 1;
+			} else
+				string_set(&output_buffer, "%s%sINT%s", col->name, TYPE_DELIM, COL_DELIM);
+		} else {
+			if (col->is_primary_key) {
+				// error, primary keys are not allowed on VARCHARS
+				*error_msg = create_format_buffer("syntax error: Primary keys are only allowed on int values.\n");
+				return -1;
+				break;
+			} else
+				string_set(&output_buffer, "%s%sVARCHAR(%d)%s", col->name, TYPE_DELIM, col->char_size, COL_DELIM);
+		}
 
 		col = col->next;
 	}
 	// handle last one separately to instead use a newline instead of the column delimiter
-	if (col->data_type == DT_INT)
-		fprintf(meta, "%s%sINT%s", col->name, TYPE_DELIM, ROW_DELIM);
-	else
-		fprintf(meta, "%s%sVARCHAR(%d)%s", col->name, TYPE_DELIM, col->char_size, ROW_DELIM);
+	if (col->data_type == DT_INT) {
+		if (col->is_primary_key) {
+			string_set(&output_buffer, "1%s%sINT%s", col->name, TYPE_DELIM, ROW_DELIM);
+			primary_key_count += 1;
+		} else
+			string_set(&output_buffer, "%s%sINT%s", col->name, TYPE_DELIM, ROW_DELIM);
+	} else {
+		if (col->is_primary_key) {
+			// error, primary keys are not allowed on VARCHARS
+			*error_msg = create_format_buffer("syntax error: Primary keys are only allowed on int values.\n");
+			return -1;
+		} else
+			string_set(&output_buffer, "%s%sVARCHAR(%d)%s", col->name, TYPE_DELIM, col->char_size, ROW_DELIM);
+	}
+
+	if (primary_key_count > 1) {
+		//error, to many primary keys
+		*error_msg = create_format_buffer("syntax error: Only one primary key is allowed.\n");
+		return -1;
+	}
+	return 0;
 }
 
 void select_table(client_request *cli_req, char **client_msg) {
@@ -479,7 +524,6 @@ void insert_data(client_request *cli_req, char **client_msg) {
 	FILE *meta = NULL;
 	FILE *data_file = NULL;
 	column_t *first = NULL;
-	dynamicstr *output_buffer = NULL;
 	char *data_file_name = NULL;
 	char *line = NULL;
 
@@ -497,7 +541,7 @@ void insert_data(client_request *cli_req, char **client_msg) {
 		goto cleanup_and_exit;
 	}
 
-	if (!(data_file = fopen(data_file_name, "r+"))) {
+	if (!(data_file = fopen(data_file_name, "a+"))) {
 		*client_msg = create_format_buffer("error: the file '%s' does not exist\n", data_file_name);
 		goto cleanup_and_exit;
 	}
@@ -512,15 +556,16 @@ void insert_data(client_request *cli_req, char **client_msg) {
 	memset(&data_file_lock, 0, sizeof(data_file_lock));
 
 	data_file_lock.l_type = F_WRLCK;
-	meta_file_lock.l_type = F_WRLCK;
+	meta_file_lock.l_type = F_RDLCK;
 
+	perror("Error\n");
 	fcntl(meta_descriptor, F_OFD_SETLKW, &meta_file_lock);
 	fcntl(data_file_descriptor, F_OFD_SETLKW, &data_file_lock);
 
+	perror("Error\n");
 	// Get information from table, how many bytes is each column?
 	// Make sure that excess space is filled with null characters
 	// Check how INSERT fills up the request_t structure
-
 	// getline into buffer, remove the table name and put it into populate column
 	char *token = NULL;
 	bool exists = false;
@@ -539,20 +584,56 @@ void insert_data(client_request *cli_req, char **client_msg) {
 		goto cleanup_and_exit;
 	}
 
+	if (!exists) {
+		// Table doesn't exist
+		perror("The table doesn't exist");
+		return;
+	}
+
 	token = strtok(NULL, COL_DELIM);
 
 	first = (column_t *)malloc(sizeof(column_t));
 	first->next = NULL;
-	populate_column(first, token);
+	first->is_primary_key = 0;
+	is_primary_key *is_pk = (is_primary_key *)malloc(sizeof(is_primary_key));
+	is_pk->found = false;
+	is_pk->size_to_pk = 0;
+	is_pk->total_row_size = 0;
+	int current_pk = -1;
+	populate_column(first, token, is_pk);
 
-	output_buffer = NULL;
+	if (is_pk->found) {
+		// total_size - primary_key size
+		char *int_buffer = (char *)malloc(11);
+		memset(int_buffer, 0, 11);
+		int offset_to_pk = is_pk->total_row_size - is_pk->size_to_pk;
+		fseek(data_file, 0, SEEK_END);
+		int file_size = ftell(data_file);
+		fseek(data_file, -offset_to_pk, SEEK_END);
+		if (file_size > 0) {
+			int total_read = fread(int_buffer, sizeof(char), 10, data_file);
+			printf("buffer: %s\n", int_buffer);
+			current_pk = (int)strtol(int_buffer, NULL, 10) + 1;
+			printf("read: %d\n", total_read);
+
+		} else {
+			current_pk = 1;
+		};
+		printf("Current_pk: %d\n", current_pk);
+		free(int_buffer);
+		int_buffer = NULL;
+		// read 10 bytes
+	}
+
+	dynamicstr *output_buffer;
 	string_init(&output_buffer);
 
-	if (column_to_buffer(first, table.columns, output_buffer, client_msg) < 0) {
+	if (column_to_buffer(first, table.columns, output_buffer, current_pk, client_msg) < 0) {
 		log_to_file("Error: Couldn't column_to_buffer() in insert_data()\n");
 		goto cleanup_and_exit;
 	}
 
+	fseek(data_file, 0, SEEK_END);
 	if (fprintf(data_file, "%s\n", output_buffer->buffer) < 0) {
 		log_to_file("Error: Couldn't fprintf() in insert_data()\n");
 		goto cleanup_and_exit;
@@ -576,33 +657,50 @@ cleanup_and_exit:
 		unpopulate_column(first);
 }
 
-int column_to_buffer(column_t *table_column, column_t *input_column, dynamicstr *output_buffer, char **client_msg) {
-	if (table_column->data_type != input_column->data_type) { // sanitation error
-		*client_msg = create_format_buffer("syntax error, value(s) are of wrong data type.\n");
+int column_to_buffer(column_t *table_column, column_t *input_column,
+					 dynamicstr *output_buffer, int primary_key, char **ret_msg) {
+	if (table_column->is_primary_key) {
+		char *integer_val = (char *)malloc(11);
+		memset(integer_val, 0, 11);
+		snprintf(integer_val, 10 + 1, "%0*d", 10, primary_key);
+
+		string_set(&output_buffer, "%s", integer_val);
+		table_column = table_column->next;
+		if (input_column == NULL) {
+			return 0;
+		}
+	}
+	if (table_column->data_type != input_column->data_type) {
+		// sanitation error
+		*ret_msg = create_format_buffer(
+			"syntax error, value(s) are of wrong data type.\n");
 		return -1;
 	}
 	if (input_column->data_type == 0) {
 		// INT
 		// write the integer value and pad the rest
-		char *integer_val = (char *)malloc(CHARS_PER_INT);
-		memset(integer_val, 0, CHARS_PER_INT);
-		snprintf(integer_val, CHARS_PER_INT + 1, "%0*d", CHARS_PER_INT, input_column->int_val);
+		char *integer_val = (char *)malloc(10);
+		memset(integer_val, 0, 10);
+		snprintf(integer_val, 10 + 1, "%0*d", 10, input_column->int_val);
 
 		string_set(&output_buffer, "%s", integer_val);
 	} else {
 		// VARCHAR
 		// Check if the length of the input matches char_size in table_column
 		char *input_str = input_column->char_val;
-		if ((input_str[0] == '\'') && (input_str[strlen(input_str) - 1] == '\'')) {
-			memmove(input_str + 0, input_str + 1, strlen(input_str));
-			memmove(input_str + strlen(input_str) - 1, input_str + strlen(input_str), strlen(input_str));
+		// Remove the ' '
+		if ((input_str[0] == '\'') &&
+			(input_str[strlen(input_str) - 1] == '\'')) {
+			input_str++;
+			input_str[strlen(input_str) - 1] = 0;
 		}
-
-		if (table_column->char_size < strlen(input_str)) { // Input value is to large
-			*client_msg = create_format_buffer("syntax error, VARCHAR value \"%s\" is to big.\n", input_column->char_val);
+		if (table_column->char_size < strlen(input_str)) {
+			// Input value is to large
+			*ret_msg = create_format_buffer(
+				"syntax error, VARCHAR value \"%s\" is to big.\n",
+				input_column->char_val);
 			return -1;
 		}
-
 		char *varchar_val = (char *)malloc(table_column->char_size + 1);
 		int length = table_column->char_size - strlen(input_str);
 		if (length == 0)
@@ -616,19 +714,20 @@ int column_to_buffer(column_t *table_column, column_t *input_column, dynamicstr 
 	}
 
 	if ((table_column->next != NULL) && (input_column->next != NULL)) {
-		if (column_to_buffer(table_column->next, input_column->next, output_buffer, client_msg) < 0)
+		// if primary key
+		// insert primary key value here
+		// then proceed
+		if (column_to_buffer(table_column->next, input_column->next,
+							 output_buffer, primary_key, ret_msg) < 0)
 			return -1;
-	} else if ((table_column->next == NULL) && (input_column->next == NULL)) { // time to return
+	} else if ((table_column->next == NULL) && (input_column->next == NULL)) {
+		// time to return
 		return 0;
-	} else {
-		// This means that the input_columns are either short or to many
-		*client_msg = create_format_buffer("syntax error, to many values.\n");
-		return -1;
 	}
 	return 0;
 }
 
-int populate_column(column_t *current, char *table_row) {
+int populate_column(column_t *current, char *table_row, is_primary_key *is_pk) {
 	// Hardcoded length, pretty extreme.
 	char column_name[50];
 	char column_type[50];
@@ -637,20 +736,31 @@ int populate_column(column_t *current, char *table_row) {
 
 	sscanf(table_row, "%s%*[ ]%[^,']", column_name, column_type);
 	current->name = (char *)malloc(strlen(column_name) + 1);
+	if (column_name[0] == '1') {
+		current->is_primary_key = 1;
+		is_pk->found = true;
+		is_pk->size_to_pk = is_pk->total_row_size;
+	}
 	strcpy(current->name, column_name);
 
 	if (column_type[0] == 'I') {
 		current->data_type = DT_INT;
+		is_pk->total_row_size += 10;
 	} else {
 		current->data_type = DT_VARCHAR;
 		sscanf(column_type, "%*[^0123456789]%d", &current->char_size);
+		is_pk->total_row_size += current->char_size;
 	}
 	table_row = strtok(NULL, ",");
 	if (table_row != NULL) {
 		column_t *next = (column_t *)malloc(sizeof(column_t));
 		next->next = NULL;
-		populate_column(next, table_row);
+		next->is_primary_key = 0;
+		populate_column(next, table_row, is_pk);
 		current->next = next;
+	} else {
+		// account for the new line
+		is_pk->total_row_size += 1;
 	}
 	return 0;
 }
