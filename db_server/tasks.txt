@@ -15,8 +15,8 @@ Grade D:
 
 Grade C:
 	command line options
-		-d = run as daemon
-		-l = log to logfile
+		-d = run as daemon - DONE
+		-l = log to logfile - DONE
 
 Grade B:
 	primary keys

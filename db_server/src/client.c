@@ -1,18 +1,16 @@
-#include <stdio.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <string.h>
-#include <arpa/inet.h>
-#include <stdlib.h>
-#include <fcntl.h>	// for open
-#include <unistd.h> // for close
-#include <pthread.h>
 #include "private_variables.h"
+#include <arpa/inet.h>
+#include <fcntl.h> // for open
+#include <netinet/in.h>
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h> // for close
 
-int main(int argc, char *argv[])
-{
-	if (argc != 2)
-	{
+int main(int argc, char *argv[]) {
+	if (argc != 2) {
 		printf("Provide one request string in quotation marks!\n");
 		exit(1);
 	}
@@ -45,22 +43,16 @@ int main(int argc, char *argv[])
 	strcpy(message, argv[1]);
 
 	if (send(client_socket, message, strlen(message), 0) < 0)
-		printf("Send failed\n");
-	// else
-	// 	printf("sent\n");
+		perror("send\n");
 
 	memset(&message, 0, 1024); // clear
 
-	while (1)
-	{
-		if (recv(client_socket, message, 1024, 0) == -1)
-		{
-			perror("recv");
-			return 1;
-		}
-		printf("%s", message);
-		memset(message, '\0', 1024);
+	if (recv(client_socket, message, 1024, 0) == -1) {
+		perror("recv");
+		return 1;
 	}
+	printf("%s\n", message);
+	memset(message, '\0', 1024);
 
 	close(client_socket);
 
