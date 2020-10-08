@@ -35,15 +35,8 @@ void string_set(dynamicstr **destination, char *format, ...) {
 		len = vsnprintf(NULL, 0, format, args) + 1;
 		va_end(args);
 
-		// If size > 0 then don't add the null character to size
-		// This might mess up the "true" size?
-		if ((*destination)->size > 0)
-			(*destination)->size += len - 1;
-		else
-			(*destination)->size += len;
-
 		sizediff = (*destination)->size - len;
-		(*destination)->buffer = realloc((*destination)->buffer, (*destination)->size);
+		(*destination)->buffer = realloc((*destination)->buffer, (*destination)->size + 1);
 
 		if ((*destination)->buffer == NULL) {
 			perror("Unable to realloc() ptr!");

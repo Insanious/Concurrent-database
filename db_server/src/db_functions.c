@@ -113,7 +113,7 @@ void create_table(client_request *cli_req, char **client_msg) {
 
 	dynamicstr *output_buffer;
 	string_init(&output_buffer);
-	if (add_table(&table, meta, output_buffer, &client_msg) < 0) {
+	if (add_table(&table, output_buffer, meta, client_msg) < 0) {
 		// Implicates that an error occured
 		string_free(&output_buffer);
 		fclose(meta);
@@ -231,7 +231,7 @@ void print_schema(char *name, char **client_msg) {
 	// *client_msg = create_format_buffer("error: table '%s' does not exists\n", name);
 }
 
-int add_table(table_t *table, FILE *meta, dynamicstr *output_buffer, char **error_msg) {
+int add_table(table_t *table, dynamicstr *output_buffer, FILE *meta, char **error_msg) {
 	// Issue: When using bytelocking two tables of the same name could occur.
 	// Solution: Lock the whole file, look for table name, if it doesn't exist
 	// add it, unlock the file.
@@ -244,6 +244,7 @@ int add_table(table_t *table, FILE *meta, dynamicstr *output_buffer, char **erro
 	struct flock lock;
 	memset(&lock, 0, sizeof(lock));
 	lock.l_type = F_WRLCK;
+	int meta_descriptor = fileno(meta);
 
 	fcntl(meta_descriptor, F_OFD_SETLKW, &lock);
 
@@ -523,7 +524,6 @@ void insert_data(client_request *cli_req, char **client_msg) {
 	FILE *meta = NULL;
 	FILE *data_file = NULL;
 	column_t *first = NULL;
-	dynamicstr *output_buffer = NULL;
 	char *data_file_name = NULL;
 	char *line = NULL;
 
@@ -554,9 +554,6 @@ void insert_data(client_request *cli_req, char **client_msg) {
 
 	memset(&meta_file_lock, 0, sizeof(meta_file_lock));
 	memset(&data_file_lock, 0, sizeof(data_file_lock));
-
-	data_file_lock.l_type = F_WRLCK;
-	meta_file_lock.l_type = F_WRLCK;
 
 	data_file_lock.l_type = F_WRLCK;
 	meta_file_lock.l_type = F_RDLCK;
@@ -595,7 +592,7 @@ void insert_data(client_request *cli_req, char **client_msg) {
 
 	token = strtok(NULL, COL_DELIM);
 
-	column_t *first = (column_t *)malloc(sizeof(column_t));
+	first = (column_t *)malloc(sizeof(column_t));
 	first->next = NULL;
 	first->is_primary_key = 0;
 	is_primary_key *is_pk = (is_primary_key *)malloc(sizeof(is_primary_key));
@@ -614,8 +611,11 @@ void insert_data(client_request *cli_req, char **client_msg) {
 		int file_size = ftell(data_file);
 		fseek(data_file, -offset_to_pk, SEEK_END);
 		if (file_size > 0) {
+			int total_read = fread(int_buffer, sizeof(char), 10, data_file);
+			printf("buffer: %s\n", int_buffer);
 			current_pk = (int)strtol(int_buffer, NULL, 10) + 1;
 			printf("read: %d\n", total_read);
+
 		} else {
 			current_pk = 1;
 		};
@@ -627,26 +627,13 @@ void insert_data(client_request *cli_req, char **client_msg) {
 
 	dynamicstr *output_buffer;
 	string_init(&output_buffer);
-	if (!(column_to_buffer(first, table.columns, output_buffer, current_pk, &client_msg) <
-		  0)) {
-		if (fprintf(data_file, "%s\n", output_buffer->buffer) < 0)
-			;
-		*client_msg = create_format_buffer("Success.\n");
-	}
-	token = strtok(NULL, COL_DELIM);
 
-	first = (column_t *)malloc(sizeof(column_t));
-	first->next = NULL;
-	populate_column(first, token);
-
-	output_buffer = NULL;
-	string_init(&output_buffer);
-
-	if (column_to_buffer(first, table.columns, output_buffer, client_msg) < 0) {
+	if (column_to_buffer(first, table.columns, output_buffer, current_pk, client_msg) < 0) {
 		log_to_file("Error: Couldn't column_to_buffer() in insert_data()\n");
 		goto cleanup_and_exit;
 	}
 
+	fseek(data_file, 0, SEEK_END);
 	if (fprintf(data_file, "%s\n", output_buffer->buffer) < 0) {
 		log_to_file("Error: Couldn't fprintf() in insert_data()\n");
 		goto cleanup_and_exit;
@@ -737,6 +724,7 @@ int column_to_buffer(column_t *table_column, column_t *input_column,
 		// time to return
 		return 0;
 	}
+	return 0;
 }
 
 int populate_column(column_t *current, char *table_row, is_primary_key *is_pk) {
