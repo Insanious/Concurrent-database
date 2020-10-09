@@ -25,6 +25,25 @@ static char *create_format_buffer(const char *format, ...) {
 	return buffer;
 }
 
+static int find_pk_line(FILE *data_file, char **line, int size_to_pk, int input_pk) {
+	char *buffer = (char *)malloc(11);
+	buffer[0] = '\0';
+	int current_pk = 0;
+	size_t len = 0;
+	size_t read;
+	int current_count = 0;
+	while ((read = getline(&(*line), &len, data_file)) != -1) {
+		current_count += read;
+		strncpy(buffer, *line + size_to_pk, 10);
+		printf("Retrieved line of length %lu :\n", read);
+		current_pk = (int)strtol(buffer, NULL, 10);
+		printf("Current pk: %d\n", current_pk);
+		if (current_pk == input_pk)
+			return current_count;
+	}
+	return 1;
+}
+
 void execute_request(void *arg) {
 	client_request *cli_req = ((client_request *)arg);
 	// server_t *server = ((server_t *)cli_req->server);
@@ -67,7 +86,7 @@ void execute_request(void *arg) {
 		printf("RT_DELETE\n");
 		break;
 	case RT_UPDATE:
-		printf("RT_UPDATE\n");
+		update_row(cli_req, &client_msg);
 		break;
 	}
 
@@ -820,7 +839,7 @@ void create_template_column(char *name, FILE *meta, table_column_t **first, int 
 		} else
 			*chars_in_row += CHARS_PER_INT; // chars in an INT
 
-		current->next = calloc(1, sizeof(column_t)); // allocate new memory for the next column
+		current->next = calloc(1, sizeof(table_column_t)); // allocate new memory for the next column
 	}
 	// since we allocate new memeory at the end of the while loop, the last
 	// iteration will allocate memory unnecessarily, therefore we free it
@@ -885,4 +904,142 @@ int unpopulate_column(table_column_t *current) {
 	free(current);
 	current = NULL;
 	return 0;
+}
+
+void update_row(client_request *cli_req, char **client_msg) {
+	// Open table and data file
+	// Lock table file, this part could actually be a byte lock.
+	// Lock correct data file
+	// populate column
+	// Check to see if the table does in fact have primary keys
+	// column_to_buffer, with some tweaks
+	// Find the row with the right primary key value
+	// Update the correct values
+	FILE *meta = NULL;
+	FILE *data_file = NULL;
+	table_column_t *first = NULL;
+	char *data_file_name = NULL;
+	char *line = NULL;
+	dynamicstr *output_buffer = NULL;
+
+	table_t table;
+	table.name = cli_req->request->table_name;
+	table.columns = cli_req->request->columns;
+	table.where = cli_req->request->where;
+
+	if (create_full_data_path_from_name(table.name, &data_file_name) < 0) {
+		*client_msg = create_format_buffer("error: server could not create the data path from '%s'\n", table.name);
+		goto cleanup_and_exit;
+	}
+
+	if (!(meta = fopen(META_FILE, "r"))) {
+		*client_msg = create_format_buffer("error: '%s' does not exist\n", META_FILE);
+		goto cleanup_and_exit;
+	}
+
+	if (!(data_file = fopen(data_file_name, "a+"))) {
+		*client_msg = create_format_buffer("error: the file '%s' does not exist\n", data_file_name);
+		goto cleanup_and_exit;
+	}
+
+	int meta_descriptor = fileno(meta);
+	int data_file_descriptor = fileno(data_file);
+
+	struct flock meta_file_lock;
+	struct flock data_file_lock;
+
+	memset(&meta_file_lock, 0, sizeof(meta_file_lock));
+	memset(&data_file_lock, 0, sizeof(data_file_lock));
+
+	data_file_lock.l_type = F_WRLCK;
+	meta_file_lock.l_type = F_RDLCK;
+
+	perror("Error\n");
+	fcntl(meta_descriptor, F_OFD_SETLKW, &meta_file_lock);
+	fcntl(data_file_descriptor, F_OFD_SETLKW, &data_file_lock);
+
+	perror("Error\n");
+	// Get information from table, how many bytes is each column?
+	// Make sure that excess space is filled with null characters
+	// Check how INSERT fills up the request_t structure
+	// getline into buffer, remove the table name and put it into populate column
+	char *token = NULL;
+	bool exists = false;
+	size_t nr_of_chars = 0;
+
+	while (getline(&line, &nr_of_chars, meta) != -1) {
+		token = strtok(line, COL_DELIM);
+		if (strcmp(token, table.name) == 0) {
+			exists = true;
+			break;
+		}
+	}
+
+	if (!exists) { // Table doesn't exist
+		*client_msg = create_format_buffer("error: table '%s' doesn't exist\n", table.name);
+		goto cleanup_and_exit;
+	}
+
+	token = strtok(NULL, COL_DELIM);
+
+	first = (table_column_t *)malloc(sizeof(table_column_t));
+	first->next = NULL;
+	first->is_primary_key = 0;
+	is_primary_key *is_pk = (is_primary_key *)malloc(sizeof(is_primary_key));
+	is_pk->found = false;
+	is_pk->size_to_pk = 0;
+	is_pk->total_row_size = 0;
+	is_pk->name = NULL;
+	populate_column(first, token, is_pk);
+	// Check if is_pk->found is true
+	// Loop through 'first' and table.columns simultaneously
+	// Go to the right line with accorande to table.where.int_val
+	// Set offset according to first.offset
+	// Create new buffer that holds the size of first.total_size
+	// Place in the new value from the input_column into that buffer and pad with zeroes if needed
+	//
+	line = (char *)malloc(is_pk->total_row_size);
+	line[0] = '\0';
+	int pk_line_offset = find_pk_line(data_file, &line, is_pk->size_to_pk, table.where->int_val);
+
+	table_column_t *current = first;
+	table_column_t *current_input = table.columns;
+	while (current != NULL) {
+		if (current->name == is_pk->name)
+			;
+		if (!current->is_primary_key) {
+			if (current->name != current_input->name)
+				;
+			if (current->data_type != current_input->data_type)
+				;
+			if (current->data_type == DT_VARCHAR) {
+
+				if (current->total_size < strlen(current_input->char_val))
+					;
+			}
+			current = current->next;
+			current_input = current_input->next;
+		} else {
+			if (current->name != table.where->name)
+				//primary key name is faulty
+				;
+			if (current_input == NULL)
+				break;
+			current = current->next;
+		}
+	}
+
+cleanup_and_exit:
+	if (meta)
+		fclose(meta);
+	if (data_file)
+		fclose(data_file);
+	if (data_file_name)
+		free(data_file_name);
+	if (line)
+		free(line);
+	if (output_buffer)
+		string_free(&output_buffer);
+	if (first)
+		unpopulate_column(first);
 }
