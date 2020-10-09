@@ -316,7 +316,7 @@ void select_table(client_request *cli_req, char **client_msg) {
 
 	fcntl(meta_descriptor, F_OFD_SETLKW, &lock);
 
-	column_t *first = NULL;
+	table_column_t *first = NULL;
 	int chars_in_row = 0;
 	create_template_column(cli_req->request->table_name, meta, &first, &chars_in_row);
 	fclose(meta);
@@ -328,7 +328,7 @@ void select_table(client_request *cli_req, char **client_msg) {
 	}
 
 	// increment chars_in_row nr_of_columns - 1 times since the msg sent to client is tab-separated between columns
-	column_t *current = first;
+	table_column_t *current = first;
 	while (current->next) {
 		chars_in_row++;
 		current = current->next;
@@ -369,7 +369,7 @@ void select_table(client_request *cli_req, char **client_msg) {
 			while (current) // iterate for each column
 			{
 				// how many chars to iterate over for the current column
-				chars_in_column = (current->char_size == 0) ? CHARS_PER_INT : current->char_size;
+				chars_in_column = (current->total_size == 0) ? CHARS_PER_INT : current->total_size;
 
 				// iterate and ignore the padding
 				for (k = 0; k < chars_in_column; k++)
@@ -523,7 +523,7 @@ int create_data_file(char *t_name) {
 void insert_data(client_request *cli_req, char **client_msg) {
 	FILE *meta = NULL;
 	FILE *data_file = NULL;
-	column_t *first = NULL;
+	table_column_t *first = NULL;
 	char *data_file_name = NULL;
 	char *line = NULL;
 
@@ -592,7 +592,7 @@ void insert_data(client_request *cli_req, char **client_msg) {
 
 	token = strtok(NULL, COL_DELIM);
 
-	first = (column_t *)malloc(sizeof(column_t));
+	first = (table_column_t *)malloc(sizeof(table_column_t));
 	first->next = NULL;
 	first->is_primary_key = 0;
 	is_primary_key *is_pk = (is_primary_key *)malloc(sizeof(is_primary_key));
@@ -657,7 +657,7 @@ cleanup_and_exit:
 		unpopulate_column(first);
 }
 
-int column_to_buffer(column_t *table_column, column_t *input_column,
+int column_to_buffer(table_column_t *table_column, column_t *input_column,
 					 dynamicstr *output_buffer, int primary_key, char **ret_msg) {
 	if (table_column->is_primary_key) {
 		char *integer_val = (char *)malloc(11);
@@ -694,19 +694,19 @@ int column_to_buffer(column_t *table_column, column_t *input_column,
 			input_str++;
 			input_str[strlen(input_str) - 1] = 0;
 		}
-		if (table_column->char_size < strlen(input_str)) {
+		if (table_column->total_size < strlen(input_str)) {
 			// Input value is to large
 			*ret_msg = create_format_buffer(
 				"syntax error, VARCHAR value \"%s\" is to big.\n",
 				input_column->char_val);
 			return -1;
 		}
-		char *varchar_val = (char *)malloc(table_column->char_size + 1);
-		int length = table_column->char_size - strlen(input_str);
+		char *varchar_val = (char *)malloc(table_column->total_size + 1);
+		int length = table_column->total_size - strlen(input_str);
 		if (length == 0)
-			snprintf(varchar_val, table_column->char_size + 1, "%s", input_str);
+			snprintf(varchar_val, table_column->total_size + 1, "%s", input_str);
 		else
-			snprintf(varchar_val, table_column->char_size + 1, "%0*d%s", length,
+			snprintf(varchar_val, table_column->total_size + 1, "%0*d%s", length,
 					 0, input_str);
 
 		string_set(&output_buffer, "%s", varchar_val);
@@ -727,7 +727,7 @@ int column_to_buffer(column_t *table_column, column_t *input_column,
 	return 0;
 }
 
-int populate_column(column_t *current, char *table_row, is_primary_key *is_pk) {
+int populate_column(table_column_t *current, char *table_row, is_primary_key *is_pk) {
 	// Hardcoded length, pretty extreme.
 	char column_name[50];
 	char column_type[50];
@@ -738,22 +738,31 @@ int populate_column(column_t *current, char *table_row, is_primary_key *is_pk) {
 	current->name = (char *)malloc(strlen(column_name) + 1);
 	if (column_name[0] == '1') {
 		current->is_primary_key = 1;
+		current->offset = is_pk->total_row_size;
 		is_pk->found = true;
 		is_pk->size_to_pk = is_pk->total_row_size;
+		is_pk->name = (char *)malloc(strlen(column_name) + 1);
+		strcpy(is_pk->name, column_name + 1);
+		strcpy(current->name, column_name + 1);
+	} else {
+
+		strcpy(current->name, column_name);
 	}
-	strcpy(current->name, column_name);
 
 	if (column_type[0] == 'I') {
 		current->data_type = DT_INT;
+		current->total_size = 10;
+		current->offset = is_pk->total_row_size;
 		is_pk->total_row_size += 10;
 	} else {
 		current->data_type = DT_VARCHAR;
-		sscanf(column_type, "%*[^0123456789]%d", &current->char_size);
-		is_pk->total_row_size += current->char_size;
+		sscanf(column_type, "%*[^0123456789]%d", &current->total_size);
+		current->offset = is_pk->total_row_size;
+		is_pk->total_row_size += current->total_size;
 	}
 	table_row = strtok(NULL, ",");
 	if (table_row != NULL) {
-		column_t *next = (column_t *)malloc(sizeof(column_t));
+		table_column_t *next = (table_column_t *)malloc(sizeof(table_column_t));
 		next->next = NULL;
 		next->is_primary_key = 0;
 		populate_column(next, table_row, is_pk);
@@ -765,7 +774,7 @@ int populate_column(column_t *current, char *table_row, is_primary_key *is_pk) {
 	return 0;
 }
 
-void create_template_column(char *name, FILE *meta, column_t **first, int *chars_in_row) {
+void create_template_column(char *name, FILE *meta, table_column_t **first, int *chars_in_row) {
 	char *token = NULL;
 	char *line = NULL;
 	size_t nr_of_chars = 0;
@@ -785,7 +794,7 @@ void create_template_column(char *name, FILE *meta, column_t **first, int *chars
 
 	// found the table
 	*chars_in_row = 1; // start at 1 to account for the newline that is after each row
-	column_t *current = calloc(1, sizeof(column_t));
+	table_column_t *current = calloc(1, sizeof(table_column_t));
 
 	while ((token = strtok(0, TYPE_DELIM))) {
 		// iterate forward in the list every time except the first time
@@ -806,8 +815,8 @@ void create_template_column(char *name, FILE *meta, column_t **first, int *chars
 		// otherwise it's an INT
 		token = strtok(0, COL_DELIM);
 		if (strcmp(token, "INT") != 0) {
-			sscanf(token, "%*[^0123456789]%d", &current->char_size); // extract number between paranthesis
-			*chars_in_row += current->char_size;
+			sscanf(token, "%*[^0123456789]%d", &current->total_size); // extract number between paranthesis
+			*chars_in_row += current->total_size;
 		} else
 			*chars_in_row += CHARS_PER_INT; // chars in an INT
 
@@ -866,7 +875,7 @@ void log_to_file(const char *format, ...) {
 	va_end(args);
 }
 
-int unpopulate_column(column_t *current) {
+int unpopulate_column(table_column_t *current) {
 	if (current->name)
 		free(current->name);
 	current->name = NULL;
