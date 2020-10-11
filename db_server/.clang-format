@@ -1,4 +1,6 @@
 BasedOnStyle: LLVM
-UseTab: ForIndentation
+UseTab: Always
+# UseTab: ForIndentation
 IndentWidth: 4
+TabWidth: 4
 ColumnLimit: 0
