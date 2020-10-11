@@ -44,6 +44,10 @@ int main(int argc, char *argv[]) {
                     exit(EXIT_FAILURE);
                 }
             }
+			else {
+				printf("Incorrect argument '%s'\n\n%s\n", argv[i], HELP);
+		        exit(3);
+			}
 
             i++;
         }

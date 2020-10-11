@@ -124,16 +124,16 @@ void create_table(client_request *cli_req, char **client_msg) {
 		*client_msg = create_format_buffer("error: could not create data file for table '%s'\n", table.name);
 		string_free(&output_buffer);
 		fclose(meta);
-
-		if (fprintf(meta, "%s", output_buffer->buffer) < 0)
-			;
-
-		fclose(meta);
-		string_free(&output_buffer);
-		log_to_file("Connection %s created table '%s'\n", get_ip_from_socket_fd(cli_req->client_socket), table.name);
-
-		*client_msg = create_format_buffer("successfully created table '%s'\n", table.name);
 	}
+
+	if (fprintf(meta, "%s", output_buffer->buffer) < 0)
+		;
+
+	fclose(meta);
+	string_free(&output_buffer);
+	log_to_file("Connection %s created table '%s'\n", get_ip_from_socket_fd(cli_req->client_socket), table.name);
+
+	*client_msg = create_format_buffer("successfully created table '%s'\n", table.name);
 }
 
 void print_tables(char **client_msg) {
@@ -206,7 +206,7 @@ void print_schema(char *name, char **client_msg) {
 		while (strlen(token) + 2 > buffer_length - strlen(buffer)) // +2 for the tabs
 			buffer_length = realloc_str(&buffer, buffer_length);
 
-		if (token[0] == '1') {// remove unnessecary primary key indication
+		if (token[0] == '1') { // remove unnessecary primary key indication
 			is_primary_key = true;
 			token++;
 		}
@@ -260,8 +260,6 @@ int add_table(table_t *table, dynamicstr *output_buffer, FILE *meta, char **erro
 	int meta_descriptor = fileno(meta);
 
 	fcntl(meta_descriptor, F_OFD_SETLKW, &lock);
-
-	fprintf(meta, "%s%s", table->name, COL_DELIM);
 
 	string_set(&output_buffer, "%s%s", table->name, COL_DELIM);
 
@@ -554,6 +552,11 @@ void insert_data(client_request *cli_req, char **client_msg) {
 		goto cleanup_and_exit;
 	}
 
+	if (access(data_file_name, F_OK) == -1) {
+		*client_msg = create_format_buffer("error: the file '%s' does not exist\n", data_file_name);
+		goto cleanup_and_exit;
+	}
+
 	if (!(data_file = fopen(data_file_name, "a+"))) {
 		*client_msg = create_format_buffer("error: the file '%s' does not exist\n", data_file_name);
 		goto cleanup_and_exit;
@@ -571,11 +574,9 @@ void insert_data(client_request *cli_req, char **client_msg) {
 	data_file_lock.l_type = F_WRLCK;
 	meta_file_lock.l_type = F_RDLCK;
 
-	perror("Error\n");
 	fcntl(meta_descriptor, F_OFD_SETLKW, &meta_file_lock);
 	fcntl(data_file_descriptor, F_OFD_SETLKW, &data_file_lock);
 
-	perror("Error\n");
 	// Get information from table, how many bytes is each column?
 	// Make sure that excess space is filled with null characters
 	// Check how INSERT fills up the request_t structure
