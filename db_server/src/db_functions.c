@@ -215,7 +215,6 @@ void print_schema(char *name, char **client_msg) {
 		if (strlen(token) < 8) // format output for smaller names
 			strcat(buffer, "\t");
 
-
 		token = strtok(0, COL_DELIM);
 
 		while (strlen(token) + 1 > buffer_length - strlen(buffer)) // +1 for the newline
@@ -642,6 +641,25 @@ void insert_data(client_request *cli_req, char **client_msg) {
 	dynamicstr *output_buffer;
 	string_init(&output_buffer);
 
+	column_t *current = first;
+	column_t *input_current = table.columns;
+	int current_counter = 0;
+	int input_counter = 0;
+	while (current->next != NULL) {
+		current_counter += 1;
+		if (input_current->next != NULL) {
+			input_counter += 1;
+			input_current = input_current->next;
+		}
+		current = current->next;
+	}
+	if (!((is_pk->found && (input_counter + 1 == current_counter)) || (!is_pk->found && (current_counter == input_counter)))) {
+		log_to_file("Error: Couldn't column_to_buffer() in insert_data()\n");
+
+		*client_msg = create_format_buffer("Value count doesn't match column count.\n");
+		goto cleanup_and_exit;
+	};
+
 	if (column_to_buffer(first, table.columns, output_buffer, current_pk, client_msg) < 0) {
 		log_to_file("Error: Couldn't column_to_buffer() in insert_data()\n");
 		goto cleanup_and_exit;
@@ -683,6 +701,11 @@ int column_to_buffer(column_t *table_column, column_t *input_column,
 		if (input_column == NULL) {
 			return 0;
 		}
+	}
+	if ((table_column->next == NULL) && (input_column->next != NULL)) {
+		*ret_msg = create_format_buffer(
+			"Too many column values.\n");
+		return -1;
 	}
 	if (table_column->data_type != input_column->data_type) {
 		// sanitation error
@@ -727,7 +750,7 @@ int column_to_buffer(column_t *table_column, column_t *input_column,
 		free(varchar_val);
 	}
 
-	if ((table_column->next != NULL) && (input_column->next != NULL)) {
+	if ((table_column->next != NULL)) {
 		// if primary key
 		// insert primary key value here
 		// then proceed
@@ -819,11 +842,12 @@ void create_template_column(char *name, FILE *meta, column_t **first, int *chars
 		// this means that if the column->char_size is set, it is a VARCHAR,
 		// otherwise it's an INT
 		token = strtok(0, COL_DELIM);
-		if (strcmp(token, "INT") != 0) {
+		if (token[0] == 'I') {
+			*chars_in_row += CHARS_PER_INT; // chars in an INT
+		} else {
 			sscanf(token, "%*[^0123456789]%d", &current->char_size); // extract number between paranthesis
 			*chars_in_row += current->char_size;
-		} else
-			*chars_in_row += CHARS_PER_INT; // chars in an INT
+		}
 
 		current->next = calloc(1, sizeof(column_t)); // allocate new memory for the next column
 	}
