@@ -198,22 +198,35 @@ void print_schema(char *name, char **client_msg) {
 	// found the table
 	size_t buffer_length = START_LENGTH;
 	char *buffer = (char *)calloc(buffer_length * sizeof(char), sizeof(char));
+	bool is_primary_key;
 
 	// print all the columns of the table
 	while ((token = strtok(0, TYPE_DELIM))) {
+		is_primary_key = false;
 		while (strlen(token) + 2 > buffer_length - strlen(buffer)) // +2 for the tabs
 			buffer_length = realloc_str(&buffer, buffer_length);
 
+		if (token[0] == '1') {// remove unnessecary primary key indication
+			is_primary_key = true;
+			token++;
+		}
 		strcat(buffer, token);
 		strcat(buffer, "\t");
 		if (strlen(token) < 8) // format output for smaller names
 			strcat(buffer, "\t");
 
+
 		token = strtok(0, COL_DELIM);
+
 		while (strlen(token) + 1 > buffer_length - strlen(buffer)) // +1 for the newline
 			buffer_length = realloc_str(&buffer, buffer_length);
 
 		strcat(buffer, token);
+		if (is_primary_key) {
+			if (buffer[strlen(buffer) - 1] == '\n')
+				buffer[strlen(buffer) - 1] = '\0';
+			strcat(buffer, "\tPRIMARY KEY");
+		}
 		strcat(buffer, "\n");
 	}
 
