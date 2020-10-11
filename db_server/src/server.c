@@ -180,12 +180,15 @@ void daemonize_server(char *log_file) {
     // fork and exit parent gracefully
     pid_t pid = fork();
     if (pid < 0) {
-	log_to_file(log_file, "Error: Couldn't fork() in daemonize_server()");
-	exit(EXIT_FAILURE);
+		log_to_file(log_file, "Error: Couldn't fork() in daemonize_server()");
+		exit(EXIT_FAILURE);
     }
 
     if (pid > 0) // close parent process so that only the child remains
-	exit(EXIT_SUCCESS);
+		exit(EXIT_SUCCESS);
+
+	printf("Successfully started the server as a daemon with pid: %d\n", getpid());
+	log_to_file(log_file, "Successfully started the server as a daemon with pid: %d\n", getpid());
 
     umask(0);
 
@@ -193,8 +196,8 @@ void daemonize_server(char *log_file) {
     pid_t sid = setsid();
     if (sid < 0) {
 	/* Log any failure */
-	log_to_file(log_file, "Error: Couldn't setsid() in daemonize_server()");
-	exit(EXIT_FAILURE);
+		log_to_file(log_file, "Error: Couldn't setsid() in daemonize_server()");
+		exit(EXIT_FAILURE);
     }
 
     // Close out the standard file descriptors
