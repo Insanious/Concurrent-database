@@ -327,6 +327,7 @@ void select_table(client_request *cli_req, char **client_msg) {
 	if (!table_exists(cli_req->request->table_name, meta))
 	{
 		fclose(meta);
+		*client_msg = create_format_buffer("Error: Table doesn't exist.\n");
 		return;
 	}
 	create_template_column(cli_req->request->table_name, meta, &first, &chars_in_row);
