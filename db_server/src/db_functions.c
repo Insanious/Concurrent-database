@@ -358,6 +358,14 @@ void select_table(client_request *cli_req, char **client_msg) {
 	fcntl(data_descriptor, F_OFD_SETLKW, &data_lock);
 
 	int chars_in_file = lseek(data_descriptor, 0, SEEK_END); // lseek to end of file
+	if(chars_in_file == 0) {
+		log_to_file("Error: Table is empty.\n");
+
+		*client_msg = create_format_buffer("Error: Table is empty.\n");
+		unpopulate_column(first);
+		fclose(data_file);
+		return;
+	}
 	lseek(data_descriptor, 0, SEEK_SET);					 // lseek back to beginning
 
 	int remaining_rows = chars_in_file / chars_in_row;
