@@ -16,8 +16,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#define IP_ADDR "127.0.0.1"
+
 #include "db_functions.h"
-#include "private_variables.h"
 #include "queue.h"
 #include "request.h"
 #include "thread_pool.h"
