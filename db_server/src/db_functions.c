@@ -279,7 +279,6 @@ int add_table(table_t *table, dynamicstr *output_buffer, FILE *meta, char **erro
 				// error, primary keys are not allowed on VARCHARS
 				*error_msg = create_format_buffer("syntax error: Primary keys are only allowed on int values.\n");
 				return -1;
-				break;
 			} else
 				string_set(&output_buffer, "%s%sVARCHAR(%d)%s", col->name, TYPE_DELIM, col->char_size, COL_DELIM);
 		}
@@ -334,7 +333,7 @@ void select_table(client_request *cli_req, char **client_msg) {
 	// did not find the table
 	if (first == NULL) {
 		*client_msg = create_format_buffer("error: '%s' does not exist\n", cli_req->request->table_name);
-		goto cleanup_and_exit;
+		return;
 	}
 
 	// increment chars_in_row nr_of_columns - 1 times since the msg sent to client is tab-separated between columns
@@ -349,7 +348,8 @@ void select_table(client_request *cli_req, char **client_msg) {
 		log_to_file("Error: Couldn't create_full_data_path_from_name() in select_table()\n");
 
 		*client_msg = create_format_buffer("error: server ran out of memory\n");
-		goto cleanup_and_exit;
+		unpopulate_column(first);
+		return;
 	}
 
 	FILE *data_file = fopen(final_name, "r");
@@ -417,11 +417,6 @@ void select_table(client_request *cli_req, char **client_msg) {
 	free(msg);
 	free(final_name);
 	fclose(data_file);
-
-cleanup_and_exit:
-	if (first)
-		unpopulate_column(first);
-	fclose(meta);
 }
 
 void drop_table(client_request *cli_req, char **client_msg) {
@@ -543,22 +538,27 @@ void insert_data(client_request *cli_req, char **client_msg) {
 
 	if (create_full_data_path_from_name(table.name, &data_file_name) < 0) {
 		*client_msg = create_format_buffer("error: server could not create the data path from '%s'\n", table.name);
-		goto cleanup_and_exit;
+		return;
 	}
 
 	if (!(meta = fopen(META_FILE, "r"))) {
 		*client_msg = create_format_buffer("error: '%s' does not exist\n", META_FILE);
-		goto cleanup_and_exit;
+		free(data_file_name);
+		return;
 	}
 
 	if (access(data_file_name, F_OK) == -1) {
 		*client_msg = create_format_buffer("error: the file '%s' does not exist\n", data_file_name);
-		goto cleanup_and_exit;
+		fclose(meta);
+		free(data_file_name);
+		return;
 	}
 
 	if (!(data_file = fopen(data_file_name, "a+"))) {
 		*client_msg = create_format_buffer("error: the file '%s' does not exist\n", data_file_name);
-		goto cleanup_and_exit;
+		fclose(meta);
+		free(data_file_name);
+		return;
 	}
 
 	int meta_descriptor = fileno(meta);
@@ -594,12 +594,9 @@ void insert_data(client_request *cli_req, char **client_msg) {
 
 	if (!exists) { // Table doesn't exist
 		*client_msg = create_format_buffer("error: table '%s' doesn't exist\n", table.name);
-		goto cleanup_and_exit;
-	}
-
-	if (!exists) {
-		// Table doesn't exist
-		perror("The table doesn't exist");
+		fclose(meta);
+		fclose(data_file);
+		free(data_file_name);
 		return;
 	}
 
@@ -624,22 +621,16 @@ void insert_data(client_request *cli_req, char **client_msg) {
 		int file_size = ftell(data_file);
 		fseek(data_file, -offset_to_pk, SEEK_END);
 		if (file_size > 0) {
-			int total_read = fread(int_buffer, sizeof(char), 10, data_file);
-			printf("buffer: %s\n", int_buffer);
+			fread(int_buffer, sizeof(char), 10, data_file);
 			current_pk = (int)strtol(int_buffer, NULL, 10) + 1;
-			printf("read: %d\n", total_read);
-
 		} else {
 			current_pk = 1;
-		};
-		printf("Current_pk: %d\n", current_pk);
+		}
 		free(int_buffer);
 		int_buffer = NULL;
 		// read 10 bytes
 	}
 
-	dynamicstr *output_buffer;
-	string_init(&output_buffer);
 
 	column_t *current = first;
 	column_t *input_current = table.columns;
@@ -657,50 +648,63 @@ void insert_data(client_request *cli_req, char **client_msg) {
 		log_to_file("Error: Couldn't column_to_buffer() in insert_data()\n");
 
 		*client_msg = create_format_buffer("Value count doesn't match column count.\n");
-		goto cleanup_and_exit;
+		fclose(meta);
+		fclose(data_file);
+		free(data_file_name);
+		free(line);
+		unpopulate_column(first);
+		return;
 	};
 
+	dynamicstr *output_buffer;
+	string_init(&output_buffer);
 	if (column_to_buffer(first, table.columns, output_buffer, current_pk, client_msg) < 0) {
 		log_to_file("Error: Couldn't column_to_buffer() in insert_data()\n");
-		goto cleanup_and_exit;
+		fclose(meta);
+		fclose(data_file);
+		free(data_file_name);
+		free(line);
+		unpopulate_column(first);
+		string_free(&output_buffer);
+		return;
 	}
 
 	fseek(data_file, 0, SEEK_END);
 	if (fprintf(data_file, "%s\n", output_buffer->buffer) < 0) {
 		log_to_file("Error: Couldn't fprintf() in insert_data()\n");
-		goto cleanup_and_exit;
+		fclose(meta);
+		fclose(data_file);
+		free(data_file_name);
+		free(line);
+		unpopulate_column(first);
+		string_free(&output_buffer);
+		return;
 	}
 
 	*client_msg = create_format_buffer("successfully inserted row into table '%s'\n", table.name);
 	log_to_file("Connection %s inserted a row into table '%s'\n", get_ip_from_socket_fd(cli_req->client_socket), table.name);
 
-cleanup_and_exit:
-	if (meta)
-		fclose(meta);
-	if (data_file)
-		fclose(data_file);
-	if (data_file_name)
-		free(data_file_name);
-	if (line)
-		free(line);
-	if (output_buffer)
-		string_free(&output_buffer);
-	if (first)
-		unpopulate_column(first);
+	fclose(meta);
+	fclose(data_file);
+	free(data_file_name);
+	free(line);
+	unpopulate_column(first);
+	string_free(&output_buffer);
+	return;
 }
 
-int column_to_buffer(column_t *table_column, column_t *input_column,
-					 dynamicstr *output_buffer, int primary_key, char **ret_msg) {
+int column_to_buffer(column_t *table_column, column_t *input_column, dynamicstr *output_buffer, int primary_key, char **ret_msg)
+{
 	if (table_column->is_primary_key) {
+		if (input_column == NULL)
+			return 0;
+
 		char *integer_val = (char *)malloc(11);
 		memset(integer_val, 0, 11);
 		snprintf(integer_val, 10 + 1, "%0*d", 10, primary_key);
 
 		string_set(&output_buffer, "%s", integer_val);
 		table_column = table_column->next;
-		if (input_column == NULL) {
-			return 0;
-		}
 	}
 	if ((table_column->next == NULL) && (input_column->next != NULL)) {
 		*ret_msg = create_format_buffer(
