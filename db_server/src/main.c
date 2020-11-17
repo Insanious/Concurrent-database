@@ -9,8 +9,10 @@ int main(int argc, char *argv[]) {
 
     // start at one because the first argument is the name of the executable
     for (size_t i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-h") == 0)
+        if (strcmp(argv[i], "-h") == 0) {
             printf("%s\n", HELP);
+            exit(EXIT_SUCCESS);
+        }
         else if (strcmp(argv[i], "-d") == 0)
             daemon = true;
         else {

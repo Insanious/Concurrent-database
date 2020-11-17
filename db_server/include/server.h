@@ -24,7 +24,7 @@
 #include "thread_pool.h"
 
 // #define HELP "help me i suck at dis"
-#define HELP "-h\t\tPrint this text.\n-p <port>\tListen to port number port.\n-d\t\tRun as a daemon instead of as a normal program.\n-l <logfile>\tLog to logfile. If this option is not specified,\n\t\tlogging will be output to syslog, which is the default.\n-s [fork | thread | prefork | mux]"
+#define HELP "-h\t\tPrint this text.\n-p <port>\tListen to port number port.\n-d\t\tRun as a daemon instead of as a normal program.\n-l <logfile>\tLog to logfile. If this option is not specified,\n\t\tlogging will be output to syslog, which is the default.\n-s [prefork]"
 
 #define THREAD 0
 #define PREFORK 1
