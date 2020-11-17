@@ -1,8 +1,0 @@
-fork and prefork:
-
-server has a socket that takes incoming requests
-the server lets then a process from the pool handle each request
-
-the incoming requests are inserted into a queue and
-are popped from the queue when a process is available
-to take care of the request
