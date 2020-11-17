@@ -324,6 +324,11 @@ void select_table(client_request *cli_req, char **client_msg) {
 
 	column_t *first = NULL;
 	int chars_in_row = 0;
+	if (!table_exists(cli_req->request->table_name, meta))
+	{
+		fclose(meta);
+		return;
+	}
 	create_template_column(cli_req->request->table_name, meta, &first, &chars_in_row);
 	fclose(meta);
 
