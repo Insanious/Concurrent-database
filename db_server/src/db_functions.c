@@ -818,6 +818,8 @@ int populate_column(column_t *current, char *table_row, is_primary_key *is_pk) {
 }
 
 void create_template_column(char *name, FILE *meta, column_t **first, int *chars_in_row) {
+	if (!(freopen(NULL, "r", meta)))
+		return;
 	char *token = NULL;
 	char *line = NULL;
 	size_t nr_of_chars = 0;
